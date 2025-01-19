@@ -3,6 +3,7 @@ package display
 import (
 	"encoding/binary"
 	"fmt"
+	"log"
 	"time"
 
 	"periph.io/x/conn/v3/gpio"
@@ -97,15 +98,9 @@ const (
 	st7789PROMEN    = 0xFA
 	st7789NVMSET    = 0xFC
 	st7789PROMACT   = 0xFE
-	MADCTL_MY       = 0x80
-	MADCTL_MX       = 0x40
-	MADCTL_MV       = 0x20
-	MADCTL_ML       = 0x10
-	MADCTL_RGB      = 0x00
-	MADCTL_BGR      = 0x08
-	MADCTL_MH       = 0x04
 )
 
+// Memory Data Access Control (MADCTL) bit fields.
 const (
 	_                           byte = 1 << iota // D0: reserved
 	_                                            // D1: reserved
@@ -189,6 +184,12 @@ func (d *st7789) init(config *Config) (err error) {
 		config.Height = st7789DefaultHeight
 	}
 
+	if (config.Rotation == NoRotation || config.Rotation == Rotate180) && (config.Width > 240 || config.Height > 320) {
+		return fmt.Errorf("st7789: invalid size %dx%d, maximum size is 240x320 at %s rotation", config.Width, config.Height, config.Rotation)
+	} else if (config.Rotation == Rotate90 || config.Rotation == Rotate270) && (config.Width > 320 || config.Height > 240) {
+		return fmt.Errorf("st7789: invalid size %dx%d, maximum size is 320x240 at %s rotation", config.Width, config.Height, config.Rotation)
+	}
+
 	// init base
 	if err = d.crgb16Display.init(config, binary.BigEndian); err != nil {
 		return
@@ -214,11 +215,8 @@ func (d *st7789) init(config *Config) (err error) {
 	}
 	time.Sleep(150 * time.Millisecond)
 
-	if err = d.SetRotation(config.Rotation); err != nil {
-		return
-	}
 	if err = d.commands([][]byte{
-		//{0x36, 0x00},       // Memory Data Access Control (TODO(maze): fix rotation)
+		{st7789MADCTL, 0x00},        // Memory Data Access Control (TODO(maze): fix rotation)
 		{st7789COLMOD, 0x05},        // Interface Pixel Format: 8-bit data bus for 16-bit/pixel (RGB 5-6-5-bit input)
 		{st7789PORCTRL, 0x0C, 0x0C}, // Porch Setting: default
 		{st7789GCTRL, 0x35},         // Gate Control: 13.26V / -10.43V (default)
@@ -239,16 +237,48 @@ func (d *st7789) init(config *Config) (err error) {
 	}
 	time.Sleep(100 * time.Millisecond)
 
-	return
+	return d.SetRotation(config.Rotation)
+}
+
+func (d *st7789) SetRotation(rotation Rotation) error {
+	rotation &= 3
+
+	var madctl byte
+	switch rotation {
+	case NoRotation:
+		madctl = 0
+	case Rotate90:
+		madctl = st7789ColumnAddressOrder | st7789PageColumnOrder
+	case Rotate180:
+		madctl = st7789ColumnAddressOrder | st7789PageAddressOrder
+	case Rotate270:
+		madctl = st7789PageAddressOrder | st7789PageColumnOrder
+	}
+
+	d.rotation = rotation
+	log.Printf("madctl %s -> %#02x", rotation, madctl)
+	return d.command(st7789MADCTL, madctl)
 }
 
 func (d *st7789) SetWindow(x0, y0, x1, y1 int) error {
 	if x1 == 0 {
-		x1 = d.buf.Rect.Max.X - 1
+		x1 = d.width - 1
 	}
 	if y1 == 0 {
-		y1 = d.buf.Rect.Max.Y - 1
+		y1 = d.height - 1
 	}
+	if d.rotation == Rotate90 || d.rotation == Rotate270 {
+		x0 += d.rowOffset
+		y0 += d.columnOffset
+		x1 += d.rowOffset
+		y1 += d.columnOffset
+	} else {
+		x0 += d.columnOffset
+		y0 += d.rowOffset
+		x1 += d.columnOffset
+		y1 += d.rowOffset
+	}
+	log.Printf("st7789 window rotation %s (%d,%d)-(%d,%d)", d.rotation, x0, y0, x1, y1)
 	if err := d.commands([][]byte{
 		{st7789CASET, byte(x0 >> 8), byte(x0), byte(x1 >> 8), byte(x1)}, // Column address
 		{st7789RASET, byte(y0 >> 8), byte(y0), byte(y1 >> 8), byte(y1)}, // Row address
@@ -257,22 +287,6 @@ func (d *st7789) SetWindow(x0, y0, x1, y1 int) error {
 		return err
 	}
 	return nil
-}
-
-func (d *st7789) SetRotation(r Rotation) error {
-	var value uint8
-	switch r {
-	case NoRotation:
-		d.rowOffset = 0
-		d.columnOffset = 0
-	case Rotate90:
-		value = st7789PageColumnOrder | st7789ColumnAddressOrder // MX|MV
-	case Rotate180:
-		value = st7789ColumnAddressOrder | st7789PageAddressOrder // MX|MY
-	case Rotate270:
-		value = st7789PageColumnOrder | st7789PageAddressOrder // MY|MV
-	}
-	return d.command(st7789MADCTL, value)
 }
 
 // Refresh sets the window to full screen and redraws using the internal frame buffer.

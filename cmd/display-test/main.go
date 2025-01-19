@@ -49,6 +49,7 @@ func main() {
 	default:
 		fatal(fmt.Errorf("invalid rotation %q specified", *rotateFlag))
 	}
+	fmt.Printf("using rotation: %s\n", rotation)
 
 	if _, err := host.Init(); err != nil {
 		fatal(err)
@@ -160,7 +161,7 @@ func main() {
 		logoSize := logo.Bounds().Size()
 		logoPos.Min = image.Pt(size.Dx()/2-logoSize.X/2, size.Dy()/2-logoSize.Y/2)
 		logoPos.Max = logoPos.Min.Add(logoSize)
-		fmt.Printf("yay! your display can show images, plotting %s logo at %s\n", logoSize, logoPos)
+		fmt.Printf("yay! your %s display can show images, plotting %s logo at %s\n", output.Bounds().Size(), logoSize, logoPos)
 	}
 
 	fmt.Println("hit control-c to stop...")

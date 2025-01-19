@@ -37,6 +37,19 @@ const (
 	Rotate270           // Rotate 270° clock wise
 )
 
+func (r Rotation) String() string {
+	switch r % 4 {
+	case Rotate90:
+		return "90°"
+	case Rotate180:
+		return "180°"
+	case Rotate270:
+		return "270°"
+	default:
+		return "0°"
+	}
+}
+
 // Display is an OLED display.
 type Display interface {
 	// At returns the color of the pixel at (x, y).
@@ -84,15 +97,20 @@ type Config struct {
 
 type display struct {
 	c            Conn
-	halted       bool
+	width        int
+	height       int
+	buf          *pixel.MonoVerticalLSBImage
+	rotation     Rotation
 	columnOffset int
 	rowOffset    int
-	rotation     Rotation
-	buf          *pixel.MonoVerticalLSBImage
+	halted       bool
 }
 
 func (d *display) init(config *Config) error {
 	d.buf = pixel.NewMonoVerticalLSBImage(config.Width, config.Height)
+	d.rotation = config.Rotation
+	d.width = config.Width
+	d.height = config.Height
 	return nil
 }
 
@@ -115,15 +133,6 @@ func (d *display) command(cmd byte, args ...byte) (err error) {
 	if debug {
 		log.Printf("command %#02x data %#02x", cmd, args)
 	}
-	/*
-		if err = d.send([]byte{cmd}, true); err != nil {
-			return
-		}
-		if len(args) == 0 {
-			return
-		}
-		return d.send(args, false)
-	*/
 	return d.send(append([]byte{cmd}, args...), true)
 }
 
@@ -172,7 +181,13 @@ func (d *display) Set(x, y int, c color.Color) {
 	d.buf.Set(x, y, c)
 }
 
-func (d display) Bounds() image.Rectangle {
+func (d *display) Bounds() image.Rectangle {
+	if d.rotation == Rotate90 || d.rotation == Rotate270 {
+		return image.Rectangle{
+			Min: d.buf.Rect.Min,
+			Max: image.Point{X: d.height, Y: d.width},
+		}
+	}
 	return d.buf.Rect
 }
 
@@ -194,6 +209,12 @@ func (d *grayDisplay) init(config *Config) error {
 }
 
 func (d *grayDisplay) Bounds() image.Rectangle {
+	if d.rotation == Rotate90 || d.rotation == Rotate270 {
+		return image.Rectangle{
+			Min: d.buf.Rect.Min,
+			Max: image.Point{X: d.buf.Rect.Max.Y, Y: d.buf.Rect.Max.X},
+		}
+	}
 	return d.buf.Bounds()
 }
 
@@ -209,6 +230,12 @@ func (d *grayDisplay) Set(x, y int, c color.Color) {
 		d.display.buf.Set(x, y, c)
 		return
 	}
+
+	switch d.rotation {
+	case Rotate90:
+		x, y = y, x
+	}
+
 	d.buf.Set(x, y, c)
 }
 
@@ -224,7 +251,7 @@ type crgb16Display struct {
 func (d *crgb16Display) init(config *Config, order binary.ByteOrder) error {
 	d.buf = pixel.NewCRGB16Image(config.Width, config.Height)
 	d.buf.Order = order
-	return nil
+	return d.display.init(config) // init base
 }
 
 func (d *crgb16Display) Bounds() image.Rectangle {
