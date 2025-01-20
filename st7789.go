@@ -148,10 +148,9 @@ func (d *st7789) String() string {
 	return fmt.Sprintf("ST7789 %dx%d", bounds.Dx(), bounds.Dy())
 }
 
-/*
-// command shadows display.command
+// command shadows baseDisplay.command
 func (d *st7789) command(command byte, data ...byte) (err error) {
-	if err = d.Command(command); err != nil {
+	if err = d.command(command); err != nil {
 		return
 	}
 	for _, data := range data {
@@ -161,13 +160,17 @@ func (d *st7789) command(command byte, data ...byte) (err error) {
 	}
 	return
 }
-*/
 
-// commands shadows display.commands to call our local command implementation.
+// commands shadows baseDisplay.commands to call our local command implementation.
 func (d *st7789) commands(commands [][]byte) (err error) {
 	for _, command := range commands {
-		if err = d.command(command[0], command[1:]...); err != nil {
+		if err = d.command(command[0]); err != nil {
 			return
+		}
+		for _, data := range command[1:] {
+			if err = d.data(data); err != nil {
+				return
+			}
 		}
 	}
 	return
