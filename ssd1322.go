@@ -16,14 +16,14 @@ const (
 )
 
 const (
-	ssd1322EnableGrayScaleTable = 0x00
-	ssd1322SetColumnAddress     = 0x15
-	ssd1322WriteRAM             = 0x5C
-	ssd1322SetRowAddress        = 0x75
-	ssd1322SetRemap             = 0xA0
-	ssd1322SetDisplayStartLine  = 0xA1
-	ssd1322SetDisplayOffset     = 0xA2
-	//ssd1322SetDisplayNormal       = 0xA4
+	ssd1322EnableGrayScaleTable   = 0x00
+	ssd1322SetColumnAddress       = 0x15
+	ssd1322WriteRAM               = 0x5C
+	ssd1322SetRowAddress          = 0x75
+	ssd1322SetRemap               = 0xA0
+	ssd1322SetDisplayStartLine    = 0xA1
+	ssd1322SetDisplayOffset       = 0xA2
+	ssd1322SetDisplayNormal       = 0xA4
 	ssd1322SetDisplayAllOn        = 0xA5
 	ssd1322SetNormalDisplay       = 0xA6
 	ssd1322SetInverseDIsplay      = 0xA7

@@ -17,7 +17,7 @@ func (d *monoDisplay) init(config *Config) error {
 	return nil
 }
 
-func (d *monoDisplay) Halt() error {
+func (d *monoDisplay) Close() error {
 	if !d.halted {
 		if err := d.Show(false); err != nil {
 			return err
@@ -25,6 +25,13 @@ func (d *monoDisplay) Halt() error {
 		d.halted = true
 	}
 	return nil
+}
+
+func (d *monoDisplay) Clear() {
+	i := d.Image.(*pixel.MonoVerticalLSBImage)
+	for j := range i.Pix {
+		i.Pix[j] = 0
+	}
 }
 
 func (d *monoDisplay) Show(show bool) error {

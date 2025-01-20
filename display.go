@@ -51,6 +51,9 @@ type Display interface {
 	// Close the display driver.
 	Close() error
 
+	// Clear the display buffer.
+	Clear()
+
 	// At returns the color of the pixel at (x, y).
 	At(x, y int) color.Color
 
