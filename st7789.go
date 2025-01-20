@@ -9,6 +9,7 @@ import (
 	"periph.io/x/conn/v3/gpio"
 
 	"github.com/BeatGlow/display/conn"
+	"github.com/BeatGlow/display/pixel"
 )
 
 const (
@@ -130,9 +131,7 @@ func ST7789(c Conn, config *Config) (Display, error) {
 
 	d := &st7789{
 		crgb16Display: crgb16Display{
-			display: display{
-				c: c,
-			},
+			baseDisplay: baseDisplay{c: c},
 		},
 	}
 
@@ -145,16 +144,17 @@ func ST7789(c Conn, config *Config) (Display, error) {
 }
 
 func (d *st7789) String() string {
-	return fmt.Sprintf("ST7789 %dx%d", d.buf.Rect.Dx(), d.buf.Rect.Dy())
+	bounds := d.Bounds()
+	return fmt.Sprintf("ST7789 %dx%d", bounds.Dx(), bounds.Dy())
 }
 
 // command shadows display.command
 func (d *st7789) command(command byte, data ...byte) (err error) {
-	if err = d.send([]byte{command}, true); err != nil {
+	if err = d.command(command); err != nil {
 		return
 	}
 	for _, data := range data {
-		if err = d.send([]byte{data}, false); err != nil {
+		if err = d.data(data); err != nil {
 			return
 		}
 	}
@@ -164,11 +164,11 @@ func (d *st7789) command(command byte, data ...byte) (err error) {
 // commands shadows display.commands to call our local command implementation.
 func (d *st7789) commands(commands [][]byte) (err error) {
 	for _, command := range commands {
-		if err = d.send([]byte{command[0]}, true); err != nil {
+		if err = d.command(command[0]); err != nil {
 			return
 		}
 		for _, data := range command[1:] {
-			if err = d.send([]byte{data}, false); err != nil {
+			if err = d.data(data); err != nil {
 				return
 			}
 		}
@@ -180,9 +180,12 @@ func (d *st7789) init(config *Config) (err error) {
 	if config.Width == 0 {
 		config.Width = st7789DefaultWidth
 	}
+	d.width = config.Width
+
 	if config.Height == 0 {
 		config.Height = st7789DefaultHeight
 	}
+	d.height = config.Height
 
 	if (config.Rotation == NoRotation || config.Rotation == Rotate180) && (config.Width > 240 || config.Height > 320) {
 		return fmt.Errorf("st7789: invalid size %dx%d, maximum size is 240x320 at %s rotation", config.Width, config.Height, config.Rotation)
@@ -240,6 +243,19 @@ func (d *st7789) init(config *Config) (err error) {
 	return d.SetRotation(config.Rotation)
 }
 
+func (d *st7789) Show(show bool) error {
+	var command = byte(st7789DISPOFF)
+	if show {
+		command = byte(st7789DISPON)
+	}
+	return d.command(command)
+}
+
+func (d *st7789) SetContrast(level uint8) error {
+	// TODO(maze): PWM the backlight
+	return nil
+}
+
 func (d *st7789) SetRotation(rotation Rotation) error {
 	rotation &= 3
 
@@ -269,13 +285,13 @@ func (d *st7789) SetWindow(x0, y0, x1, y1 int) error {
 	}
 	if d.rotation == Rotate90 || d.rotation == Rotate270 {
 		x0 += d.rowOffset
-		y0 += d.columnOffset
+		y0 += d.colOffset
 		x1 += d.rowOffset
-		y1 += d.columnOffset
+		y1 += d.colOffset
 	} else {
-		x0 += d.columnOffset
+		x0 += d.colOffset
 		y0 += d.rowOffset
-		x1 += d.columnOffset
+		x1 += d.colOffset
 		y1 += d.rowOffset
 	}
 	log.Printf("st7789 window rotation %s (%d,%d)-(%d,%d)", d.rotation, x0, y0, x1, y1)
@@ -295,12 +311,14 @@ func (d *st7789) Refresh() error {
 		return err
 	}
 	const batchSize = 4096
-	for i, l := 0, len(d.buf.Pix); i < l; i += batchSize {
+
+	pix := d.Image.(*pixel.CRGB16Image).Pix
+	for i, l := 0, len(pix); i < l; i += batchSize {
 		j := i + batchSize
 		if j > l {
 			j = l
 		}
-		if err := d.send(d.buf.Pix[i:j], false); err != nil {
+		if err := d.data(pix[i:j]...); err != nil {
 			return err
 		}
 	}

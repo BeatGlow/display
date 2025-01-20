@@ -8,6 +8,7 @@ import (
 
 // Buffer holds the pixel values and is a container that is used by most image formats in this package.
 type Buffer struct {
+	// Rect is the image bounding box.
 	Rect image.Rectangle
 
 	// Pix are the image pixels.
@@ -78,49 +79,6 @@ func (p *MonoImage) Set(x, y int, c color.Color) {
 	}
 }
 
-// Gray4Image is a 4-bits per pixel gray scale image.
-type Gray4Image struct {
-	Buffer
-}
-
-func NewGray4Image(w, h int) *Gray4Image {
-	stride := ((w + 1) & ^1) / 2 // round up to whole bytes
-	return &Gray4Image{
-		Buffer: makeBuffer(w, h, stride, stride*h),
-	}
-}
-
-func (p *Gray4Image) ColorModel() color.Model {
-	return Gray4Model
-}
-
-func (p *Gray4Image) At(x, y int) color.Color {
-	if !(image.Point{x, y}).In(p.Rect) {
-		return color.Transparent
-	}
-
-	index := y*p.Stride + x/2
-	if x%2 == 0 {
-		return Gray4{Y: p.Pix[index] >> 4}
-	} else {
-		return Gray4{Y: p.Pix[index] & 0xf}
-	}
-}
-
-func (p *Gray4Image) Set(x, y int, c color.Color) {
-	if !(image.Point{x, y}).In(p.Rect) {
-		return
-	}
-
-	index := y*p.Stride + x/2
-	color := gray4Model(c).(Gray4).Y & 0xf
-	if x%2 == 0 {
-		p.Pix[index] = (p.Pix[index] & 0xf0) | color
-	} else {
-		p.Pix[index] = (p.Pix[index] & 0x0f) | color<<4
-	}
-}
-
 // MonoVerticalLSBImage is a 1-bit per pixel monochrome image.
 //
 // This is mostly used by SSD1xxx OLED displays.
@@ -166,6 +124,110 @@ func (p *MonoVerticalLSBImage) Set(x, y int, c color.Color) {
 		p.Pix[pos] |= bit
 	} else {
 		p.Pix[pos] &^= bit
+	}
+}
+
+// Gray2Image is a 2-bits per pixel gray scale image.
+type Gray2Image struct {
+	// Rect is the image bounding box.
+	Rect image.Rectangle
+
+	// Pix are the image pixels.
+	Pix []byte
+
+	// Stride is the Pix stride (in bytes) between vertically adjacent pixels.
+	Stride int
+}
+
+func NewGray2Image(w, h int) *Gray2Image {
+	return &Gray2Image{
+		Rect:   image.Rect(0, 0, w, h),
+		Pix:    make([]byte, h*(w>>2)),
+		Stride: (w + 3) >> 2, // round up to whole bytes
+	}
+}
+
+func (p *Gray2Image) Bounds() image.Rectangle {
+	return p.Rect
+}
+
+func (p *Gray2Image) ColorModel() color.Model {
+	return Gray2Model
+}
+
+func (p *Gray2Image) At(x, y int) color.Color {
+	if !(image.Point{x, y}).In(p.Rect) {
+		return color.Transparent
+	}
+
+	index := y*p.Stride + x/4
+	shift := (3 - x&3) << 1
+	return Gray2{Y: (p.Pix[index] >> shift) & 3}
+}
+
+func (p *Gray2Image) Set(x, y int, c color.Color) {
+	if !(image.Point{x, y}).In(p.Rect) {
+		return
+	}
+
+	index := y*p.Stride + x/4
+	shift := (3 - x&3) << 1
+	color := gray2Model(c).(Gray2).Y & 3
+	p.Pix[index] = (p.Pix[index] &^ (3 << shift)) | color<<shift
+}
+
+// Gray4Image is a 4-bits per pixel gray scale image.
+type Gray4Image struct {
+	// Rect is the image bounding box.
+	Rect image.Rectangle
+
+	// Pix are the image pixels.
+	Pix []byte
+
+	// Stride is the Pix stride (in bytes) between vertically adjacent pixels.
+	Stride int
+}
+
+func NewGray4Image(w, h int) *Gray4Image {
+	return &Gray4Image{
+		Rect:   image.Rect(0, 0, w, h),
+		Pix:    make([]byte, h*(w>>1)),
+		Stride: (w + 1) >> 1, // round up to whole bytes
+	}
+}
+
+func (p *Gray4Image) Bounds() image.Rectangle {
+	return p.Rect
+}
+
+func (p *Gray4Image) ColorModel() color.Model {
+	return Gray4Model
+}
+
+func (p *Gray4Image) At(x, y int) color.Color {
+	if !(image.Point{x, y}).In(p.Rect) {
+		return color.Transparent
+	}
+
+	index := y*p.Stride + x>>1
+	if x%2 == 0 {
+		return Gray4{Y: p.Pix[index] >> 4}
+	} else {
+		return Gray4{Y: p.Pix[index] & 0xf}
+	}
+}
+
+func (p *Gray4Image) Set(x, y int, c color.Color) {
+	if !(image.Point{x, y}).In(p.Rect) {
+		return
+	}
+
+	index := y*p.Stride + x>>1
+	color := gray4Model(c).(Gray4).Y & 0xf
+	if x%2 == 0 {
+		p.Pix[index] = (p.Pix[index] & 0x0f) | color<<4
+	} else {
+		p.Pix[index] = (p.Pix[index] & 0xf0) | color
 	}
 }
 

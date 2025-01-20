@@ -47,10 +47,10 @@ func (i *I2C) Reset() error {
 	return nil
 }
 
-func (c *I2C) Send(p []byte, isCommand bool) error {
-	if isCommand {
-		return c.conn.Tx(append([]byte{0x00}, p...), nil)
-	} else {
-		return c.conn.Tx(append([]byte{0x40}, p...), nil)
-	}
+func (c *I2C) Read(p []byte) (int, error) {
+	return len(p), c.conn.Tx(p, p)
+}
+
+func (c *I2C) Write(p []byte) (int, error) {
+	return len(p), c.conn.Tx(p, nil)
 }

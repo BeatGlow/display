@@ -2,6 +2,8 @@ package display
 
 import (
 	"fmt"
+
+	"github.com/BeatGlow/display/pixel"
 )
 
 const (
@@ -11,7 +13,7 @@ const (
 )
 
 type ssd1306 struct {
-	display
+	monoDisplay
 	pageSize int
 	width    int
 	colStart byte
@@ -20,8 +22,10 @@ type ssd1306 struct {
 
 func SSD1306(conn Conn, config *Config) (Display, error) {
 	d := &ssd1306{
-		display: display{
-			c: conn,
+		monoDisplay: monoDisplay{
+			baseDisplay: baseDisplay{
+				c: conn,
+			},
 		},
 	}
 
@@ -40,7 +44,8 @@ func SSD1306(conn Conn, config *Config) (Display, error) {
 }
 
 func (d *ssd1306) String() string {
-	return fmt.Sprintf("SSD1306 %dx%d", d.buf.Rect.Dx(), d.buf.Rect.Dy())
+	bounds := d.Bounds()
+	return fmt.Sprintf("SSD1306 %dx%d", bounds.Dx(), bounds.Dy())
 }
 
 func (d *ssd1306) init(config *Config) (err error) {
@@ -72,26 +77,26 @@ func (d *ssd1306) init(config *Config) (err error) {
 	d.colEnd = colStart + byte(config.Width)
 
 	// init base
-	if err = d.display.init(config); err != nil {
+	if err = d.monoDisplay.init(config); err != nil {
 		return
 	}
 
 	// init display
 	if err = d.command(
-		setDisplayOff,
-		setDisplayClockDiv, displayClockDiv,
-		setMultiplexRatio, multiplexRatio,
-		setDisplayOffset, 0x00,
-		setStartLine,
-		setChargePump, 0x14,
-		setMemoryMode, 0x00,
-		setSegmentRemap,
-		setComScanDec,
-		setComPins, comPins,
-		setPrecharge, 0xF1,
-		setVComDetect, 0x40,
-		setDisplayAllOnResume,
-		setNormalDisplay,
+		ssd1xxxSetDisplayOff,
+		ssd1xxxSetDisplayClockDiv, displayClockDiv,
+		ssd1xxxSetMultiplexRatio, multiplexRatio,
+		ssd1xxxSetDisplayOffset, 0x00,
+		ssd1xxxSetStartLine,
+		ssd1xxxSetChargePump, 0x14,
+		ssd1xxxSetMemoryMode, 0x00,
+		ssd1xxxSetSegmentRemap,
+		ssd1xxxSetComScanDec,
+		ssd1xxxSetComPins, comPins,
+		ssd1xxxSetPrecharge, 0xF1,
+		ssd1xxxSetVCOMDetect, 0x40,
+		ssd1xxxSetDisplayAllOnResume,
+		ssd1xxxSetNormalDisplay,
 	); err != nil {
 		return err
 	}
@@ -111,11 +116,12 @@ func (d *ssd1306) init(config *Config) (err error) {
 
 func (d *ssd1306) Refresh() (err error) {
 	//const pageSize = 8
+	pix := d.Image.(*pixel.MonoVerticalLSBImage).Pix
 	for page := 0; page < d.pageSize; page++ {
 		if err = d.command(
-			setColumnAddr, d.colStart, d.colEnd-1,
-			setStartLine|0x0, //nolint:staticcheck
-			setPageAddr, 0x00, byte(page),
+			ssd1xxxSetColumnAddr, d.colStart, d.colEnd-1,
+			ssd1xxxSetStartLine|0x0, //nolint:staticcheck
+			ssd1xxxSetPageAddr, 0x00, byte(page),
 		); err != nil {
 			return
 		}
@@ -123,7 +129,7 @@ func (d *ssd1306) Refresh() (err error) {
 			off = page * d.width
 			end = off + d.width
 		)
-		if err := d.send(d.buf.Pix[off:end], false); err != nil {
+		if err := d.data(pix[off:end]...); err != nil {
 			return err
 		}
 	}

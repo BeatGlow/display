@@ -3,6 +3,11 @@ package display
 import (
 	"fmt"
 	"image"
+	"time"
+
+	"github.com/BeatGlow/display/conn"
+	"github.com/BeatGlow/display/pixel"
+	"periph.io/x/conn/v3/gpio"
 )
 
 const (
@@ -11,15 +16,16 @@ const (
 )
 
 const (
-	ssd1322SetColumnAddress       = 0x15
-	ssd1322WriteRAM               = 0x5C
-	ssd1322SetRowAddress          = 0x75
-	ssd1322SetRemap               = 0xA0
-	ssd1322SetDisplayStartLine    = 0xA1
-	ssd1322SetDisplayOffset       = 0xA2
-	ssd1322SetDisplayNormal       = 0xA4
+	ssd1322EnableGrayScaleTable = 0x00
+	ssd1322SetColumnAddress     = 0x15
+	ssd1322WriteRAM             = 0x5C
+	ssd1322SetRowAddress        = 0x75
+	ssd1322SetRemap             = 0xA0
+	ssd1322SetDisplayStartLine  = 0xA1
+	ssd1322SetDisplayOffset     = 0xA2
+	//ssd1322SetDisplayNormal       = 0xA4
 	ssd1322SetDisplayAllOn        = 0xA5
-	ssd1322SetDisplayOff          = 0xA6
+	ssd1322SetNormalDisplay       = 0xA6
 	ssd1322SetInverseDIsplay      = 0xA7
 	ssd1322SetExitPartialDisplay  = 0xA9
 	ssd1322SetFunction            = 0xAB
@@ -30,6 +36,7 @@ const (
 	ssd1322SetDisplayEnhancementA = 0xB4
 	ssd1322SetGPIO                = 0xB5
 	ssd1322SetSecondPrecharge     = 0xB6
+	ssd1322SetGrayScaleTable      = 0xB8
 	ssd1322SetDefaultGrayscale    = 0xB9
 	ssd1322SetPrechargeVoltage    = 0xBB
 	ssd1322SetVCOMHVoltage        = 0xBE
@@ -55,26 +62,39 @@ var (
 )
 
 type ssd1322 struct {
-	grayDisplay
+	ssd1xxxDisplay
 }
 
 // SSD1322 is a driver for Solomon Systech SSD1322 OLED display.
-func SSD1322(conn Conn, config *Config) (Display, error) {
+func SSD1322(c Conn, config *Config) (Display, error) {
+	// Update mode and speed
+	if spi, ok := c.(SPI); ok {
+		if err := spi.SetMode(conn.SPIMode3); err != nil {
+			return nil, err
+		}
+		if err := spi.SetMaxSpeed(2500000); err != nil {
+			return nil, err
+		}
+	}
+
 	d := &ssd1322{
-		grayDisplay: grayDisplay{
-			display: display{
-				c: conn,
+		ssd1xxxDisplay: ssd1xxxDisplay{
+			monoDisplay: monoDisplay{
+				baseDisplay: baseDisplay{
+					c: c,
+				},
 			},
 		},
 	}
 
-	if config.Width == 0 {
-		config.Width = ssd1322DefaultWidth
+	if err := d.c.Reset(gpio.Low); err != nil {
+		return nil, err
 	}
-	if config.Height == 0 {
-		config.Height = ssd1322DefaultHeight
+	time.Sleep(150 * time.Millisecond)
+	if err := d.c.Reset(gpio.High); err != nil {
+		return nil, err
 	}
-
+	time.Sleep(250 * time.Millisecond)
 	if err := d.init(config); err != nil {
 		return nil, err
 	}
@@ -83,10 +103,18 @@ func SSD1322(conn Conn, config *Config) (Display, error) {
 }
 
 func (d *ssd1322) String() string {
-	return fmt.Sprintf("SSD1322 %dx%d", d.buf.Rect.Dx(), d.buf.Rect.Dy())
+	bounds := d.Bounds()
+	return fmt.Sprintf("SSD1322 %dx%d", bounds.Dx(), bounds.Dy())
 }
 
 func (d *ssd1322) init(config *Config) (err error) {
+	if config.Width == 0 {
+		config.Width = ssd1322DefaultWidth
+	}
+	if config.Height == 0 {
+		config.Height = ssd1322DefaultHeight
+	}
+
 	var supported bool
 	for _, size := range ssd1322SupportedSizes {
 		if supported = size.X == config.Width && size.Y == config.Height; supported {
@@ -94,45 +122,47 @@ func (d *ssd1322) init(config *Config) (err error) {
 		}
 	}
 	if !supported {
-		return fmt.Errorf("oled: SSD1322 unsupported size %dx%d", config.Width, config.Height)
+		return fmt.Errorf("display: SSD1322 unsupported size %dx%d", config.Width, config.Height)
 	}
 
 	// init base
-	if err = d.grayDisplay.init(config); err != nil {
+	if err = d.ssd1xxxDisplay.init(config); err != nil {
 		return
 	}
+	d.Image = pixel.NewGray4Image(d.width, d.height)
 
 	// init display
 	if err = d.commands(
-		[]byte{ssd1322SetCommandLock, 0x12},               // Unlock IC
-		[]byte{ssd1322SetDisplayNormal},                   // Display normal
-		[]byte{ssd1322SetFrontClockDiv, 0xF2},             // Display divide clockratio/freq
-		[]byte{ssd1322SetMultiplexRatio, 0x3F},            // Set MUX ratio
-		[]byte{ssd1322SetDisplayOffset, 0x00},             // Display offset
-		[]byte{ssd1322SetDisplayStartLine, 0x00},          // Display start Line
-		[]byte{ssd1322SetRemap, 0x14, 0x11},               // Set remap & dual COM Line
-		[]byte{ssd1322SetGPIO, 0x00},                      // Set GPIO (disabled)
-		[]byte{ssd1322SetFunction, 0x01},                  // Function select (internal Vdd)
-		[]byte{ssd1322SetDisplayEnhancementA, 0xA0, 0xFD}, // Display enhancement A (External VSL)
-		[]byte{ssd1322SetMasterCurrent, 0x0F},             // Master contrast (reset)
-		[]byte{ssd1322SetDefaultGrayscale},                // Set default greyscale table
-		[]byte{ssd1322SetPhaseLength, 0xF0},               // Phase length
-		[]byte{ssd1322SetDisplayEnhancementB, 0x82, 0x20}, // Display enhancement B (reset)
-		[]byte{ssd1322SetPrechargeVoltage, 0x0D},          // Pre-charge voltage
-		[]byte{ssd1322SetSecondPrecharge, 0x08},           // 2nd precharge period
-		[]byte{ssd1322SetVCOMHVoltage, 0x00},              // Set VcomH
-		[]byte{ssd1322SetDisplayOff},                      // Display off (all pixels off)
-		[]byte{ssd1322SetExitPartialDisplay},              // Exit partial display
-		[]byte{ssd1322SetDisplayOn},                       // Display on
+		[]byte{ssd1322SetCommandLock, 0x12},                      // Unlock OLED driver IC
+		[]byte{ssd1322SetDislpayOff},                             // 0xAE
+		[]byte{ssd1322SetFrontClockDiv, 0x91},                    // 0xB3
+		[]byte{ssd1322SetMultiplexRatio, byte(d.width - 1)},      // 0xCA
+		[]byte{ssd1322SetDisplayOffset, 0x00},                    // 0xA2
+		[]byte{ssd1322SetDisplayStartLine, 0x00},                 // 0xA1
+		[]byte{ssd1322SetRemap, 0x14, 0x11},                      // Horizontal address increment,Disable Column Address Re-map,Enable Nibble Re-map,Scan from COM[N-1] to COM0,Disable COM Split Odd Even; Enable Dual COM mode
+		[]byte{ssd1322SetGPIO, 0x00},                             // Disable GPIO Pins Input
+		[]byte{ssd1322SetFunction, 0x01},                         // Selection external VDD
+		[]byte{ssd1322SetDisplayEnhancementA, 0xA0, 0x05 | 0xFD}, // Enable external VSL; Enhanced low GS display quality;default is 0xb5(normal),
+		[]byte{ssd1322SetContrast, 0x7F},                         // 0xFF - default is 0x7f
+		[]byte{ssd1322SetMasterCurrent, 0x0F},                    // Default is 0x0F
+		[]byte{ssd1322SetDefaultGrayscale},                       // Grayscale 4-bit
+		[]byte{ssd1322SetPhaseLength, 0xE2},                      // Default is 0x74
+		[]byte{ssd1322SetDisplayEnhancementB, 0x82, 0x20},        // Reserved; default is 0xa2(normal)
+		[]byte{ssd1322SetPrechargeVoltage, 0x1F},                 // 0.6xVcc
+		[]byte{ssd1322SetSecondPrecharge, 0x08},                  // Default
+		[]byte{ssd1322SetVCOMHVoltage, 0x07},                     // 0.86xVcc;default is 0x04
+		[]byte{ssd1322SetNormalDisplay},                          // Normal display
+		[]byte{ssd1322SetExitPartialDisplay},
 	); err != nil {
 		return
 	}
+	time.Sleep(2 * time.Millisecond)
 
-	d.columnOffset = (480 - d.buf.Rect.Max.X) >> 1
-	if err = d.SetWindow(d.buf.Rect); err != nil {
+	if err = d.clearRAM(); err != nil {
 		return
 	}
-	if err = d.SetContrast(0x7F); err != nil {
+
+	if err = d.SetContrast(0xFF); err != nil {
 		return
 	}
 	if err = d.Refresh(); err != nil {
@@ -145,36 +175,59 @@ func (d *ssd1322) init(config *Config) (err error) {
 	return
 }
 
+func (d *ssd1322) clearRAM() (err error) {
+	if err = d.commands(
+		[]byte{ssd1322SetColumnAddress, 0x00, 0x77},
+		[]byte{ssd1322SetRowAddress, 0x00, 0x7F},
+		[]byte{ssd1322WriteRAM},
+	); err != nil {
+		return
+	}
+
+	blank := make([]byte, 120) // 480/4
+	for y := 0; y < 128; y++ {
+		if err = d.data(blank...); err != nil {
+			return
+		}
+	}
+	return
+}
+
 func (d *ssd1322) SetContrast(level uint8) error {
 	return d.command(ssd1322SetContrast, level)
 }
 
-func (d *ssd1322) SetWindow(r image.Rectangle) error {
-	if !r.In(d.buf.Rect) {
-		return ErrBounds
-	}
-
+func (d *ssd1322) setWindow(x, y, width, height int) error {
 	var (
-		left        = r.Min.X
-		right       = r.Max.X
-		width       = byte(right - left)
-		start       = byte(d.columnOffset + left)
-		columnStart = byte(start >> 2)
-		columnEnd   = (start + width>>2) - 1
+		x0 = byte((480-d.width)/8) + byte(x/4)
+		x1 = x0 + byte(width/4) - 1
+		y0 = byte(y)
+		y1 = y0 + byte(height) - 1
 	)
 	return d.commands(
-		[]byte{ssd1322SetColumnAddress, byte(columnStart), byte(columnEnd)}, // Set column address
-		[]byte{ssd1322SetRowAddress, byte(r.Min.Y), byte(r.Max.Y - 1)},      // Set row address
-		[]byte{ssd1322WriteRAM}, // Enable MCU to write data into RAM
+		[]byte{ssd1322SetRowAddress, y0, y1},
+		[]byte{ssd1322SetColumnAddress, x0, x1},
 	)
 }
 
 // Refresh needs to be duplicated here, otherwise we can't access the gray buf.
 func (d *ssd1322) Refresh() error {
-	if err := d.SetWindow(d.buf.Rect); err != nil {
+	if err := d.setWindow(0, 0, d.width, d.height); err != nil {
 		return err
 	}
-	return d.c.Send(d.buf.Pix, false)
+	if err := d.command(ssd1322WriteRAM); err != nil {
+		return err
+	}
+
+	switch i := d.Image.(type) {
+	case *pixel.MonoVerticalLSBImage:
+		return d.data(i.Pix...) // 2048 bytes @ 256x64x1
+	case *pixel.Gray2Image:
+		return d.data(i.Pix...) // 4096 bytes @ 256x64x2
+	case *pixel.Gray4Image:
+		return d.data(i.Pix...) // 8192 bytes @ 256x64x4
+	}
+	return nil
 }
 
 // Interface checks

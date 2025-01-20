@@ -2,17 +2,13 @@
 package display
 
 import (
-	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"image"
 	"image/color"
-	"log"
+	"image/draw"
 	"os"
 
 	"periph.io/x/conn/v3/gpio"
-
-	"github.com/BeatGlow/display/pixel"
 )
 
 var debug bool
@@ -93,179 +89,53 @@ type Config struct {
 
 	// Reset pin
 	Reset gpio.PinOut
+
+	// Backlight pin
+	Backlight gpio.PinOut
 }
 
-type display struct {
-	c            Conn
-	width        int
-	height       int
-	buf          *pixel.MonoVerticalLSBImage
-	rotation     Rotation
-	columnOffset int
-	rowOffset    int
-	halted       bool
+type baseDisplay struct {
+	draw.Image
+	c         Conn
+	width     int
+	height    int
+	colOffset int
+	rowOffset int
+	rotation  Rotation
 }
 
-func (d *display) init(config *Config) error {
-	d.buf = pixel.NewMonoVerticalLSBImage(config.Width, config.Height)
-	d.rotation = config.Rotation
-	d.width = config.Width
-	d.height = config.Height
-	return nil
-}
-
+/*
 // send transparently re-enabled a halted display
-func (d *display) send(data []byte, isCommand bool) error {
-	if d.halted {
-		if err := d.Show(true); err != nil {
-			return err
+func (d *baseDisplay) send(data []byte, isCommand bool) error {
+	if debug {
+		if isCommand {
+			log.Printf("cmnd [%d] %#02x %#02v", len(data), data[0], data[1:])
+		} else {
+			log.Printf("data [%d] %#02v", len(data), data)
 		}
-		d.halted = false
-	}
-	if !isCommand && debug {
-		log.Printf("data %s", hex.EncodeToString(data))
 	}
 	return d.c.Send(data, isCommand)
 }
 
 // command sends a command
-func (d *display) command(cmd byte, args ...byte) (err error) {
-	if debug {
-		log.Printf("command %#02x data %#02x", cmd, args)
-	}
+func (d *baseDisplay) command(cmd byte, args ...byte) (err error) {
 	return d.send(append([]byte{cmd}, args...), true)
 }
+*/
 
-func (d *display) commands(cmds ...[]byte) (err error) {
+func (d *baseDisplay) data(data ...byte) error {
+	return d.c.Data(data...)
+}
+
+func (d *baseDisplay) command(cmnd byte, data ...byte) error {
+	return d.c.Command(cmnd, data...)
+}
+
+func (d *baseDisplay) commands(cmds ...[]byte) (err error) {
 	for _, cmd := range cmds {
-		if err = d.command(cmd[0], cmd[1:]...); err != nil {
+		if err = d.c.Command(cmd[0], cmd[1:]...); err != nil {
 			return
 		}
 	}
 	return
-}
-
-func (d *display) Halt() error {
-	if !d.halted {
-		if err := d.Show(false); err != nil {
-			return err
-		}
-		d.halted = true
-	}
-	return nil
-}
-
-func (d *display) Show(show bool) error {
-	// NB: don't use d.send here
-	if show {
-		return d.c.Send([]byte{setDisplayOn}, true)
-	} else {
-		return d.c.Send([]byte{setDisplayOff}, true)
-	}
-}
-
-func (d *display) SetContrast(level uint8) error {
-	return d.command(setContrast, level)
-}
-
-func (d *display) SetRotation(rotation Rotation) error {
-	d.rotation = rotation
-	return nil
-}
-
-func (d *display) At(x, y int) color.Color {
-	return d.buf.At(x, y)
-}
-
-func (d *display) Set(x, y int, c color.Color) {
-	d.buf.Set(x, y, c)
-}
-
-func (d *display) Bounds() image.Rectangle {
-	if d.rotation == Rotate90 || d.rotation == Rotate270 {
-		return image.Rectangle{
-			Min: d.buf.Rect.Min,
-			Max: image.Point{X: d.height, Y: d.width},
-		}
-	}
-	return d.buf.Rect
-}
-
-func (display) ColorModel() color.Model {
-	return pixel.MonoModel
-}
-
-type grayDisplay struct {
-	display
-	buf     *pixel.Gray4Image
-	useMono bool
-}
-
-func (d *grayDisplay) init(config *Config) error {
-	d.buf = pixel.NewGray4Image(config.Width, config.Height)
-	d.useMono = config.UseMono
-
-	return d.display.init(config) // init base
-}
-
-func (d *grayDisplay) Bounds() image.Rectangle {
-	if d.rotation == Rotate90 || d.rotation == Rotate270 {
-		return image.Rectangle{
-			Min: d.buf.Rect.Min,
-			Max: image.Point{X: d.buf.Rect.Max.Y, Y: d.buf.Rect.Max.X},
-		}
-	}
-	return d.buf.Bounds()
-}
-
-func (d *grayDisplay) At(x, y int) color.Color {
-	if d.useMono {
-		return d.display.buf.At(x, y)
-	}
-	return d.buf.At(x, y)
-}
-
-func (d *grayDisplay) Set(x, y int, c color.Color) {
-	if d.useMono {
-		d.display.buf.Set(x, y, c)
-		return
-	}
-
-	switch d.rotation {
-	case Rotate90:
-		x, y = y, x
-	}
-
-	d.buf.Set(x, y, c)
-}
-
-func (grayDisplay) ColorModel() color.Model {
-	return pixel.Gray4Model
-}
-
-type crgb16Display struct {
-	display
-	buf *pixel.CRGB16Image
-}
-
-func (d *crgb16Display) init(config *Config, order binary.ByteOrder) error {
-	d.buf = pixel.NewCRGB16Image(config.Width, config.Height)
-	d.buf.Order = order
-	return d.display.init(config) // init base
-}
-
-func (d *crgb16Display) Bounds() image.Rectangle {
-	return d.buf.Bounds()
-}
-
-func (c *crgb16Display) ColorModel() color.Model {
-	return pixel.CRGB16Model
-}
-
-func (d *crgb16Display) At(x, y int) color.Color {
-	return d.buf.At(x, y)
-}
-
-func (d *crgb16Display) Set(x, y int, c color.Color) {
-	d.buf.Set(x, y, c)
 }

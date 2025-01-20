@@ -28,6 +28,7 @@ func main() {
 	resetPinFlag := flag.String("reset", "GPIO25", "Reset GPIO pin")
 	dcPinFlag := flag.String("dc", "GPIO24", "Data/Command GPIO pin (DC)")
 	cePinFlag := flag.String("ce", "GPIO8", "Chip enable GPIO pin")
+	blPinFlag := flag.String("bl", "GPIO19", "Backlight GPIO pin")
 	rotateFlag := flag.String("rotate", "", "Display rotation")
 	flag.Parse()
 
@@ -57,10 +58,11 @@ func main() {
 
 	var (
 		config = &display.Config{
-			Width:    *widthFlag,
-			Height:   *heightFlag,
-			Rotation: rotation,
-			UseMono:  *useMonoFlag,
+			Width:     *widthFlag,
+			Height:    *heightFlag,
+			Rotation:  rotation,
+			UseMono:   *useMonoFlag,
+			Backlight: gpioreg.ByName(*blPinFlag),
 		}
 		conn   display.Conn
 		output display.Display
@@ -93,12 +95,16 @@ func main() {
 	switch driver := strings.ToLower(flag.Arg(1)); driver {
 	case "sh1106":
 		output, err = display.SH1106(conn, config)
+	case "ssd1305":
+		output, err = display.SSD1305(conn, config)
 	case "ssd1306":
 		output, err = display.SSD1306(conn, config)
 	case "ssd1322":
 		output, err = display.SSD1322(conn, config)
-	case "ssd1326":
-		output, err = display.SSD1326(conn, config)
+	//case "ssd1326":
+	//	output, err = display.SSD1326(conn, config)
+	case "st7735":
+		output, err = display.ST7735(conn, config)
 	case "st7789":
 		output, err = display.ST7789(conn, config)
 	default:
@@ -131,20 +137,29 @@ func main() {
 
 	var (
 		m         = output.ColorModel()
+		bits      int
 		isGraphic bool
+		drawOp    = draw.Over
 	)
 	switch m {
 	case pixel.MonoModel:
+		bits = 1
 		fmt.Println("using color model: monochrome")
 	case pixel.Gray2Model:
+		bits = 2
 		fmt.Println("using color model: 2-bit gray")
+		isGraphic = true
+		drawOp = draw.Src
 	case pixel.Gray4Model:
+		bits = 4
 		fmt.Println("using color model: 4-bit gray")
 		isGraphic = true
 	case pixel.CRGB15Model:
+		bits = 15
 		fmt.Println("using color model: 15-bit RGB")
 		isGraphic = true
 	case pixel.CRGB16Model:
+		bits = 16
 		fmt.Println("using color model: 16-bit RGB")
 		isGraphic = true
 	default:
@@ -161,7 +176,7 @@ func main() {
 		logoSize := logo.Bounds().Size()
 		logoPos.Min = image.Pt(size.Dx()/2-logoSize.X/2, size.Dy()/2-logoSize.Y/2)
 		logoPos.Max = logoPos.Min.Add(logoSize)
-		fmt.Printf("yay! your %s display can show images, plotting %s logo at %s\n", output.Bounds().Size(), logoSize, logoPos)
+		fmt.Printf("yay! your %s display can show %d-bit images, plotting %s logo at %s\n", output.Bounds().Size(), bits, logoSize, logoPos)
 	}
 
 	fmt.Println("hit control-c to stop...")
@@ -176,6 +191,8 @@ func main() {
 					} else {
 						output.Set(x, y, pixel.Off)
 					}
+				case pixel.Gray2Model:
+					output.Set(x, y, pixel.Gray4{Y: uint8(x+y+offset) & 0x3})
 				case pixel.Gray4Model:
 					output.Set(x, y, pixel.Gray4{Y: uint8(x+y+offset) & 0xf})
 				default:
@@ -190,12 +207,19 @@ func main() {
 		}
 
 		if isGraphic {
-			draw.Draw(output, logoPos, logo, image.Point{}, draw.Over)
+			draw.Draw(output, logoPos, logo, image.Point{}, drawOp)
 		}
+
+		/*
+			if err = output.SetContrast(uint8(offset)); err != nil {
+				println(err)
+			}
+		*/
 
 		if err = output.Refresh(); err != nil {
 			fatal(err)
 		}
+
 		offset++
 		<-ticker.C
 		//break

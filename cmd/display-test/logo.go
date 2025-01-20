@@ -7,13 +7,21 @@ import (
 )
 
 func logoImage(size image.Point) image.Image {
-	var b []byte
+	var (
+		b   []byte
+		min int
+	)
+	if size.X > size.Y {
+		min = size.Y
+	} else {
+		min = size.X
+	}
 	switch {
-	case size.X >= 256:
+	case min >= 256:
 		b = logo256PNGBytes
-	case size.X >= 192:
+	case min >= 192:
 		b = logo192PNGBytes
-	case size.X >= 128:
+	case min >= 128:
 		b = logo128PNGBytes
 	default:
 		b = logoPNGBytes

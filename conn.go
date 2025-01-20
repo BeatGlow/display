@@ -27,8 +27,17 @@ type Conn interface {
 	// Reset sets the reset pin to the provided level.
 	Reset(gpio.Level) error
 
+	// Command sends a command byte with optional arguments.
+	Command(byte, ...byte) error
+
+	// Data sends data bytes.
+	Data(...byte) error
+
 	// Send data over the serial interface.
-	Send(data []byte, isCommand bool) error
+	//Send(data []byte, isCommand bool) error
+
+	// SendByte sends one data byte over the serial interface.
+	//SendByte(data byte, isCommand bool) error
 }
 
 type SPI interface {
@@ -83,8 +92,18 @@ func OpenI2C(config *I2CConfig) (Conn, error) {
 	}, nil
 }
 
-func (i *i2cConn) Reset(level gpio.Level) error {
-	return i.reset.Out(level)
+func (c *i2cConn) Command(cmnd byte, args ...byte) (err error) {
+	_, err = c.I2C.Write(append([]byte{0x00, cmnd}, args...))
+	return
+}
+
+func (c *i2cConn) Data(data ...byte) (err error) {
+	_, err = c.I2C.Write(append([]byte{0x40}, data...))
+	return
+}
+
+func (c *i2cConn) Reset(level gpio.Level) error {
+	return c.reset.Out(level)
 }
 
 // SPIConfig describes the SPI bus configuration.
@@ -135,7 +154,8 @@ type spiConn struct {
 	debug     bool
 	reset     gpio.PinOut
 	dc        gpio.PinOut
-	ce        gpio.PinOut
+	dcLevel   gpio.Level
+	cs        gpio.PinOut
 	dataLow   bool
 	batchSize uint
 }
@@ -186,7 +206,7 @@ func OpenSPI(config *SPIConfig) (Conn, error) {
 		dataLow:   config.DataLow,
 		reset:     config.Reset,
 		dc:        config.DC,
-		ce:        config.CE,
+		cs:        config.CE,
 		//debug:        true,
 	}, nil
 }
@@ -203,57 +223,85 @@ func (c *spiConn) Reset(level gpio.Level) error {
 	return c.reset.Out(level)
 }
 
-func (c *spiConn) Send(b []byte, isCommand bool) (err error) {
-	if c.dc != nil {
-		level := gpio.Level(isCommand == c.dataLow)
-		//log.Printf("command %t, dc to %s", isCommand, level)
-		if err = c.dc.Out(level); err != nil {
+func (c *spiConn) updateDC(level gpio.Level) error {
+	if c.dcLevel != level {
+		if err := c.dc.Out(level); err != nil {
+			return err
+		}
+		c.dcLevel = level
+	}
+	return nil
+}
+
+func (c *spiConn) updateCS(level gpio.Level) error {
+	if c.cs == nil {
+		return nil
+	}
+	return c.cs.Out(level)
+}
+
+func (c *spiConn) Command(cmnd byte, data ...byte) (err error) {
+	if err = c.updateCS(gpio.Low); err != nil {
+		return
+	}
+	if err = c.updateDC(gpio.Level(c.dataLow)); err != nil {
+		return
+	}
+	if _, err = c.bus.Write([]byte{cmnd}); err != nil {
+		return
+	}
+	if len(data) > 0 {
+		if err = c.updateDC(gpio.Level(!c.dataLow)); err != nil {
+			return
+		}
+		if err = c.writeChunked(data); err != nil {
 			return
 		}
 	}
-
-	if c.ce != nil {
-		//log.Println("ce to Low")
-		if err = c.ce.Out(gpio.Low); err != nil {
-			return
-		}
+	if err = c.updateCS(gpio.High); err != nil {
+		return
 	}
-
-	if isCommand {
-		if c.debug {
-			log.Printf(">c> [%04d] %#02x %#02v", len(b), b[0], b[1:])
-		}
-		if _, err = c.bus.Write(b); err != nil {
-			return
-		}
-	} else {
-
-		if err = c.sendBatched(b); err != nil {
-			return
-		}
-	}
-
-	if c.ce != nil {
-		//log.Println("ce to High")
-		if err = c.ce.Out(gpio.High); err != nil {
-			return
-		}
-	}
-
 	return
 }
 
-func (c *spiConn) sendBatched(b []byte) (err error) {
-	for i, l := 0, len(b); i < l; i += int(c.batchSize) {
-		r := b[i:]
-		if len(r) > int(c.batchSize) {
-			r = r[:c.batchSize]
-		}
-		if c.debug {
-			log.Printf(">d> [%04d] %#02v", len(r), r)
-		}
-		if _, err = c.bus.Write(r); err != nil {
-			return
+func (c *spiConn) Data(data ...byte) (err error) {
+	if len(data) == 0 {
+		return
+	}
+	if err = c.updateDC(gpio.Level(!c.dataLow)); err != nil {
+		return
+	}
+	if err = c.updateCS(gpio.Low); err != nil {
+		return
+	}
+	if err = c.writeChunked(data); err != nil {
+		return
+	}
+	if err = c.updateCS(gpio.High); err != nil {
+		return
+	}
+	return
+}
+
+func (c *spiConn) writeChunked(data []byte) (err error) {
+	if len(data) < int(c.batchSize) {
+		_, err = c.bus.Write(data)
+		return
+	}
+
+	log.Printf("write %d bytes of data in %d chunks", len(data), (len(data)+int(c.batchSize)-1)/int(c.batchSize))
+	buffer := data
+	for len(buffer) > 0 {
+		if len(buffer) > int(c.batchSize) {
+			if _, err = c.bus.Write(buffer[:c.batchSize]); err != nil {
+				return
+			}
+			buffer = buffer[c.batchSize:]
+		} else {
+			if _, err = c.bus.Write(buffer); err != nil {
+				return
+			}
+			buffer = nil
 		}
 	}
 	return

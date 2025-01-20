@@ -7,20 +7,23 @@ import (
 )
 
 const (
-	sh1106DefaultWidth  = 128
-	sh1106DefaultHeight = 64
-	sh1106SetPageAddr   = 0xB0
+	ssd1305DefaultWidth    = 128
+	ssd1305DefaultHeight   = 32
+	ssd1305SetPageAddr     = 0x22
+	ssd1305SetLUT          = 0x91
+	ssd1305SetMasterConfig = 0xAD
+	ssd1305setAreaColor    = 0xD8
 )
 
-type sh1106 struct {
+type ssd1305 struct {
 	monoDisplay
-	pageSize int
-	width    int
+	pageSize   int
+	pageOffset int
 }
 
-// SH1106 is a driver for the Sino Wealth SH1106 OLED display.
-func SH1106(conn Conn, config *Config) (Display, error) {
-	d := &sh1106{
+// SSD1305 is a driver for the Sino Wealth SSD1305 OLED display.
+func SSD1305(conn Conn, config *Config) (Display, error) {
+	d := &ssd1305{
 		monoDisplay: monoDisplay{
 			baseDisplay: baseDisplay{
 				c: conn,
@@ -29,10 +32,10 @@ func SH1106(conn Conn, config *Config) (Display, error) {
 	}
 
 	if config.Width == 0 {
-		config.Width = sh1106DefaultWidth
+		config.Width = ssd1305DefaultWidth
 	}
 	if config.Height == 0 {
-		config.Height = sh1106DefaultHeight
+		config.Height = ssd1305DefaultHeight
 	}
 	d.pageSize = config.Height >> 3
 	d.width = config.Width
@@ -44,25 +47,23 @@ func SH1106(conn Conn, config *Config) (Display, error) {
 	return d, nil
 }
 
-func (d *sh1106) String() string {
+func (d *ssd1305) String() string {
 	bounds := d.Bounds()
-	return fmt.Sprintf("SH1106 %dx%d", bounds.Dx(), bounds.Dy())
+	return fmt.Sprintf("ssd1305 %dx%d", bounds.Dx(), bounds.Dy())
 }
 
-func (d *sh1106) init(config *Config) (err error) {
+func (d *ssd1305) init(config *Config) (err error) {
 	var (
-		multiplexRatio byte
-		displayOffset  byte
+		lowColumn  byte
+		highColumn byte
 	)
 	switch {
 	case config.Width == 128 && config.Height == 32:
-		multiplexRatio, displayOffset = 0x20, 0x0f
+		lowColumn, highColumn = 0, 0
 	case config.Width == 128 && config.Height == 64:
-		multiplexRatio, displayOffset = 0x3f, 0x00
-	case config.Width == 128 && config.Height == 128:
-		multiplexRatio, displayOffset = 0xff, 0x02
+		lowColumn, highColumn = 4, 4
 	default:
-		return fmt.Errorf("oled: SH1106 unsupported size %dx%d", config.Width, config.Height)
+		return fmt.Errorf("display: ssd1305 unsupported size %dx%d", config.Width, config.Height)
 	}
 
 	// init base
@@ -73,19 +74,20 @@ func (d *sh1106) init(config *Config) (err error) {
 	// init display
 	if err = d.command(
 		ssd1xxxSetDisplayOff,
-		ssd1xxxSetMemoryMode,
-		ssd1xxxSetHighColumn, 0x80, 0xC8,
-		ssd1xxxSetLowColumn, 0x10, 0x40,
-		ssd1xxxSetSegmentRemap,
+		ssd1xxxSetLowColumn|lowColumn,
+		ssd1xxxSetHighColumn|highColumn,
+		ssd1xxxSetStartLine, 0x00,
+		ssd1xxxSetSegmentRemap|0x01,
 		ssd1xxxSetNormalDisplay,
-		ssd1xxxSetMultiplexRatio, multiplexRatio,
-		ssd1xxxSetDisplayAllOnResume,
-		ssd1xxxSetDisplayOffset, displayOffset,
+		ssd1xxxSetMultiplexRatio, 0x3F,
+		ssd1305SetMasterConfig, 0x8E,
+		ssd1xxxSetComScanDec,
+		ssd1xxxSetDisplayOffset, 0x40,
 		ssd1xxxSetDisplayClockDiv, 0xF0,
-		ssd1xxxSetPrecharge, 0x22,
+		ssd1305setAreaColor, 0x05,
+		ssd1xxxSetPrecharge, 0xF1,
 		ssd1xxxSetComPins, 0x12,
-		ssd1xxxSetVCOMDetect, 0x20,
-		ssd1xxxSetChargePump, 0x14,
+		ssd1305SetLUT, 0x3F, 0x3F, 0x3F, 0x3F,
 	); err != nil {
 		return err
 	}
@@ -103,12 +105,12 @@ func (d *sh1106) init(config *Config) (err error) {
 	return
 }
 
-func (d *sh1106) Refresh() (err error) {
+func (d *ssd1305) Refresh() (err error) {
 	//const pageSize = 8
 	pix := d.Image.(*pixel.MonoVerticalLSBImage).Pix
 	for page := 0; page < d.pageSize; page++ {
 		if err = d.command(
-			sh1106SetPageAddr|byte(page&0x7),
+			ssd1305SetPageAddr|byte(page&0x7),
 			ssd1xxxSetLowColumn|0x2,
 			ssd1xxxSetHighColumn|0x0, //nolint:staticcheck
 		); err != nil {
