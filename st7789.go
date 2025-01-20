@@ -3,7 +3,6 @@ package display
 import (
 	"encoding/binary"
 	"fmt"
-	"log"
 	"time"
 
 	"periph.io/x/conn/v3/gpio"
@@ -275,7 +274,6 @@ func (d *st7789) SetRotation(rotation Rotation) error {
 	}
 
 	d.rotation = rotation
-	log.Printf("madctl %s -> %#02x", rotation, madctl)
 	return d.command(st7789MADCTL, madctl)
 }
 
@@ -297,7 +295,6 @@ func (d *st7789) SetWindow(x0, y0, x1, y1 int) error {
 		x1 += d.colOffset
 		y1 += d.rowOffset
 	}
-	log.Printf("st7789 window rotation %s (%d,%d)-(%d,%d)", d.rotation, x0, y0, x1, y1)
 	if err := d.commands([][]byte{
 		{st7789CASET, byte(x0 >> 8), byte(x0), byte(x1 >> 8), byte(x1)}, // Column address
 		{st7789RASET, byte(y0 >> 8), byte(y0), byte(y1 >> 8), byte(y1)}, // Row address

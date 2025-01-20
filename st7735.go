@@ -3,7 +3,6 @@ package display
 import (
 	"encoding/binary"
 	"fmt"
-	"log"
 	"time"
 
 	"periph.io/x/conn/v3/gpio"
@@ -180,8 +179,6 @@ func (d *st7735) init(config *Config) (err error) {
 		if err = d.backlight.PWM(gpio.DutyMax, 2000*physic.Hertz); err != nil {
 			return
 		}
-	} else {
-		log.Println("st7735: no backlight control")
 	}
 
 	// reset the device.
@@ -268,7 +265,6 @@ func (d *st7735) SetContrast(level uint8) error {
 		step = gpio.DutyMax / 0xFF
 		rate = 2 * physic.KiloHertz
 	)
-	log.Printf("st7735: backlight duty cycle to %s at %s", step*gpio.Duty(level), rate)
 	return d.backlight.PWM(step*gpio.Duty(level), rate)
 }
 
@@ -288,7 +284,6 @@ func (d *st7735) SetRotation(rotation Rotation) error {
 	}
 
 	d.rotation = rotation
-	log.Printf("madctl %s -> %#02x", rotation, madctl)
 	return d.command(st7735MADCTL, madctl)
 }
 
@@ -310,7 +305,6 @@ func (d *st7735) SetWindow(x0, y0, x1, y1 int) error {
 		x1 += d.colOffset
 		y1 += d.rowOffset
 	}
-	log.Printf("st7735 window rotation %s (%d,%d)-(%d,%d)", d.rotation, x0, y0, x1, y1)
 	if err := d.commands([][]byte{
 		{st7735CASET, byte(x0 >> 8), byte(x0), byte(x1 >> 8), byte(x1)}, // Column address
 		{st7735RASET, byte(y0 >> 8), byte(y0), byte(y1 >> 8), byte(y1)}, // Row address

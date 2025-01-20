@@ -3,7 +3,6 @@ package display
 import (
 	"errors"
 	"fmt"
-	"log"
 
 	"periph.io/x/conn/v3/gpio"
 	"periph.io/x/conn/v3/gpio/gpioreg"
@@ -289,7 +288,6 @@ func (c *spiConn) writeChunked(data []byte) (err error) {
 		return
 	}
 
-	log.Printf("write %d bytes of data in %d chunks", len(data), (len(data)+int(c.batchSize)-1)/int(c.batchSize))
 	buffer := data
 	for len(buffer) > 0 {
 		if len(buffer) > int(c.batchSize) {
