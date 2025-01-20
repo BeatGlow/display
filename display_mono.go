@@ -27,13 +27,6 @@ func (d *monoDisplay) Close() error {
 	return nil
 }
 
-func (d *monoDisplay) Clear() {
-	i := d.Image.(*pixel.MonoVerticalLSBImage)
-	for j := range i.Pix {
-		i.Pix[j] = 0
-	}
-}
-
 func (d *monoDisplay) Show(show bool) error {
 	// NB: don't use d.send here
 	if show {

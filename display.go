@@ -8,6 +8,7 @@ import (
 	"image/draw"
 	"os"
 
+	"github.com/BeatGlow/display/pixel"
 	"periph.io/x/conn/v3/gpio"
 )
 
@@ -125,4 +126,33 @@ func (d *baseDisplay) commands(commands ...[]byte) (err error) {
 		}
 	}
 	return
+}
+
+func (d *baseDisplay) Clear() {
+	switch i := d.Image.(type) {
+	case *pixel.MonoImage:
+		for j := range i.Pix {
+			i.Pix[j] = 0
+		}
+	case *pixel.MonoVerticalLSBImage:
+		for j := range i.Pix {
+			i.Pix[j] = 0
+		}
+	case *pixel.Gray2Image:
+		for j := range i.Pix {
+			i.Pix[j] = 0
+		}
+	case *pixel.Gray4Image:
+		for j := range i.Pix {
+			i.Pix[j] = 0
+		}
+	case *pixel.CRGB15Image:
+		for j := range i.Pix {
+			i.Pix[j] = 0
+		}
+	case *pixel.CRGB16Image:
+		for j := range i.Pix {
+			i.Pix[j] = 0
+		}
+	}
 }

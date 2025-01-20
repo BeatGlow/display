@@ -29,10 +29,3 @@ func (d *gray4Display) init(config *Config) error {
 	d.rotation = config.Rotation
 	return nil
 }
-
-func (d *gray4Display) Clear() {
-	i := d.Image.(*pixel.Gray4Image)
-	for j := range i.Pix {
-		i.Pix[j] = 0
-	}
-}
