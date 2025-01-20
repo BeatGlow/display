@@ -133,25 +133,26 @@ func (d *ssd1322) init(config *Config) (err error) {
 
 	// init display
 	if err = d.commands(
-		[]byte{ssd1322SetCommandLock, 0x12},                      // Unlock OLED driver IC
-		[]byte{ssd1322SetDislpayOff},                             // 0xAE
-		[]byte{ssd1322SetFrontClockDiv, 0x91},                    // 0xB3
-		[]byte{ssd1322SetMultiplexRatio, byte(d.width - 1)},      // 0xCA
-		[]byte{ssd1322SetDisplayOffset, 0x00},                    // 0xA2
-		[]byte{ssd1322SetDisplayStartLine, 0x00},                 // 0xA1
-		[]byte{ssd1322SetRemap, 0x14, 0x11},                      // Horizontal address increment,Disable Column Address Re-map,Enable Nibble Re-map,Scan from COM[N-1] to COM0,Disable COM Split Odd Even; Enable Dual COM mode
-		[]byte{ssd1322SetGPIO, 0x00},                             // Disable GPIO Pins Input
-		[]byte{ssd1322SetFunction, 0x01},                         // Selection external VDD
-		[]byte{ssd1322SetDisplayEnhancementA, 0xA0, 0x05 | 0xFD}, // Enable external VSL; Enhanced low GS display quality;default is 0xb5(normal),
-		[]byte{ssd1322SetContrast, 0x7F},                         // 0xFF - default is 0x7f
-		[]byte{ssd1322SetMasterCurrent, 0x0F},                    // Default is 0x0F
-		[]byte{ssd1322SetDefaultGrayscale},                       // Grayscale 4-bit
-		[]byte{ssd1322SetPhaseLength, 0xE2},                      // Default is 0x74
-		[]byte{ssd1322SetDisplayEnhancementB, 0x82, 0x20},        // Reserved; default is 0xa2(normal)
-		[]byte{ssd1322SetPrechargeVoltage, 0x1F},                 // 0.6xVcc
-		[]byte{ssd1322SetSecondPrecharge, 0x08},                  // Default
-		[]byte{ssd1322SetVCOMHVoltage, 0x07},                     // 0.86xVcc;default is 0x04
-		[]byte{ssd1322SetNormalDisplay},                          // Normal display
+		[]byte{ssd1322SetCommandLock, 0x12},                  // Unlock OLED driver IC
+		[]byte{ssd1322SetDisplayAllOn},                       // 0xA5
+		[]byte{ssd1322SetDislpayOff},                         // 0xAE
+		[]byte{ssd1322SetFrontClockDiv, 0x91},                // 0xB3; default is 0x91
+		[]byte{ssd1322SetMultiplexRatio, byte(d.height - 1)}, // 0xCA
+		[]byte{ssd1322SetDisplayOffset, 0x00},                // 0xA2
+		[]byte{ssd1322SetDisplayStartLine, 0x00},             // 0xA1
+		[]byte{ssd1322SetRemap, 0x14, 0x11},                  // Horizontal address increment,Disable Column Address Re-map,Enable Nibble Re-map,Scan from COM[N-1] to COM0,Disable COM Split Odd Even; Enable Dual COM mode
+		[]byte{ssd1322SetGPIO, 0x00},                         // Disable GPIO Pins Input
+		[]byte{ssd1322SetFunction, 0x01},                     // Selection external VDD
+		[]byte{ssd1322SetDisplayEnhancementA, 0xA0, 0xB5},    // Enable external VSL; Enhanced low GS display quality;default is 0xb5(normal),
+		[]byte{ssd1322SetContrast, 0x7F},                     // 0xFF - default is 0x7f
+		[]byte{ssd1322SetMasterCurrent, 0x0F},                // Default is 0x0F
+		[]byte{ssd1322SetDefaultGrayscale},                   // Grayscale 4-bit
+		[]byte{ssd1322SetPhaseLength, 0xE2},                  // Default is 0x74
+		[]byte{ssd1322SetDisplayEnhancementB, 0x82, 0x20},    // Reserved; default is 0xa2(normal)
+		[]byte{ssd1322SetPrechargeVoltage, 0x1F},             // 0.6xVcc
+		[]byte{ssd1322SetSecondPrecharge, 0x08},              // Default
+		[]byte{ssd1322SetVCOMHVoltage, 0x04},                 // 0.86xVcc;default is 0x04
+		[]byte{ssd1322SetNormalDisplay},                      // Normal display
 		[]byte{ssd1322SetExitPartialDisplay},
 	); err != nil {
 		return
