@@ -150,7 +150,7 @@ func (d *st7789) String() string {
 
 // command shadows baseDisplay.command
 func (d *st7789) command(command byte, data ...byte) (err error) {
-	if err = d.command(command); err != nil {
+	if err = d.c.Command(command); err != nil {
 		return
 	}
 	for _, data := range data {
@@ -164,13 +164,8 @@ func (d *st7789) command(command byte, data ...byte) (err error) {
 // commands shadows baseDisplay.commands to call our local command implementation.
 func (d *st7789) commands(commands [][]byte) (err error) {
 	for _, command := range commands {
-		if err = d.c.Command(command[0]); err != nil {
+		if err = d.command(command[0], command[1:]...); err != nil {
 			return
-		}
-		for _, data := range command[1:] {
-			if err = d.c.Data(data); err != nil {
-				return
-			}
 		}
 	}
 	return
