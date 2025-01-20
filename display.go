@@ -48,6 +48,9 @@ func (r Rotation) String() string {
 
 // Display is an OLED display.
 type Display interface {
+	// Close the display driver.
+	Close() error
+
 	// At returns the color of the pixel at (x, y).
 	At(x, y int) color.Color
 
@@ -104,36 +107,17 @@ type baseDisplay struct {
 	rotation  Rotation
 }
 
-/*
-// send transparently re-enabled a halted display
-func (d *baseDisplay) send(data []byte, isCommand bool) error {
-	if debug {
-		if isCommand {
-			log.Printf("cmnd [%d] %#02x %#02v", len(data), data[0], data[1:])
-		} else {
-			log.Printf("data [%d] %#02v", len(data), data)
-		}
-	}
-	return d.c.Send(data, isCommand)
-}
-
-// command sends a command
-func (d *baseDisplay) command(cmd byte, args ...byte) (err error) {
-	return d.send(append([]byte{cmd}, args...), true)
-}
-*/
-
 func (d *baseDisplay) data(data ...byte) error {
 	return d.c.Data(data...)
 }
 
-func (d *baseDisplay) command(cmnd byte, data ...byte) error {
-	return d.c.Command(cmnd, data...)
+func (d *baseDisplay) command(command byte, data ...byte) error {
+	return d.c.Command(command, data...)
 }
 
-func (d *baseDisplay) commands(cmds ...[]byte) (err error) {
-	for _, cmd := range cmds {
-		if err = d.c.Command(cmd[0], cmd[1:]...); err != nil {
+func (d *baseDisplay) commands(commands ...[]byte) (err error) {
+	for _, command := range commands {
+		if err = d.c.Command(command[0], command[1:]...); err != nil {
 			return
 		}
 	}

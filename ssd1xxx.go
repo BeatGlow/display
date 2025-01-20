@@ -1,6 +1,8 @@
 package display
 
-import "github.com/BeatGlow/display/pixel"
+import (
+	"github.com/BeatGlow/display/pixel"
+)
 
 const (
 	ssd1xxxSetLowColumn          = 0x00
@@ -47,7 +49,7 @@ func (d *ssd1xxxDisplay) init(config *Config) error {
 	return nil
 }
 
-func (d *ssd1xxxDisplay) Halt() error {
+func (d *ssd1xxxDisplay) Close() error {
 	if !d.halted {
 		if err := d.Show(false); err != nil {
 			return err
@@ -73,4 +75,24 @@ func (d *ssd1xxxDisplay) SetContrast(level uint8) error {
 func (d *ssd1xxxDisplay) SetRotation(rotation Rotation) error {
 	d.rotation = rotation
 	return nil
+}
+
+// data transparently re-enabled a halted display
+func (d *ssd1xxxDisplay) data(data ...byte) error {
+	if d.halted {
+		if err := d.Show(true); err != nil {
+			return err
+		}
+	}
+	return d.baseDisplay.data(data...)
+}
+
+// command sends a command
+func (d *ssd1xxxDisplay) command(command byte, data ...byte) (err error) {
+	if d.halted {
+		if err := d.Show(true); err != nil {
+			return err
+		}
+	}
+	return d.baseDisplay.command(command, data...)
 }

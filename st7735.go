@@ -241,6 +241,14 @@ func (d *st7735) init(config *Config) (err error) {
 	return
 }
 
+func (d *st7735) Close() error {
+	if err := d.Show(false); err != nil {
+		_ = d.c.Close()
+		return err
+	}
+	return d.c.Close()
+}
+
 func (d *st7735) Show(show bool) error {
 	var command = byte(st7735DISPOFF)
 	if show {

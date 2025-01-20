@@ -143,6 +143,14 @@ func ST7789(c Conn, config *Config) (Display, error) {
 	return d, nil
 }
 
+func (d *st7789) Close() error {
+	if err := d.Show(false); err != nil {
+		_ = d.c.Close()
+		return err
+	}
+	return d.c.Close()
+}
+
 func (d *st7789) String() string {
 	bounds := d.Bounds()
 	return fmt.Sprintf("ST7789 %dx%d", bounds.Dx(), bounds.Dy())

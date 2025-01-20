@@ -47,6 +47,17 @@ func SSD1305(conn Conn, config *Config) (Display, error) {
 	return d, nil
 }
 
+func (d *ssd1305) Close() error {
+	if !d.halted {
+		if err := d.Show(false); err != nil {
+			_ = d.c.Close()
+			return err
+		}
+		d.halted = true
+	}
+	return d.c.Close()
+}
+
 func (d *ssd1305) String() string {
 	bounds := d.Bounds()
 	return fmt.Sprintf("ssd1305 %dx%d", bounds.Dx(), bounds.Dy())

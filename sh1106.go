@@ -44,6 +44,17 @@ func SH1106(conn Conn, config *Config) (Display, error) {
 	return d, nil
 }
 
+func (d *sh1106) Close() error {
+	if !d.halted {
+		if err := d.Show(false); err != nil {
+			_ = d.c.Close()
+			return err
+		}
+		d.halted = true
+	}
+	return d.c.Close()
+}
+
 func (d *sh1106) String() string {
 	bounds := d.Bounds()
 	return fmt.Sprintf("SH1106 %dx%d", bounds.Dx(), bounds.Dy())
