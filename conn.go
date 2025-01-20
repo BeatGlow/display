@@ -191,7 +191,7 @@ func OpenSPI(config *SPIConfig) (Conn, error) {
 		}
 		if !valid {
 			_ = c.Close()
-			return nil, fmt.Errorf("oled: invalid SPI speed %dHz", config.SpeedHz)
+			return nil, fmt.Errorf("display: invalid SPI speed %dHz", config.SpeedHz)
 		}
 
 		if err = c.SetMaxSpeed(int(config.SpeedHz)); err != nil {
