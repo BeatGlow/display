@@ -3,7 +3,6 @@ package display
 
 import (
 	"errors"
-	"image"
 	"image/color"
 	"image/draw"
 	"os"
@@ -49,23 +48,16 @@ func (r Rotation) String() string {
 
 // Display is an OLED display.
 type Display interface {
+	draw.Image
+
 	// Close the display driver.
 	Close() error
 
 	// Clear the display buffer.
 	Clear()
 
-	// At returns the color of the pixel at (x, y).
-	At(x, y int) color.Color
-
-	// Set the pixel color at (x, y).
-	Set(x, y int, c color.Color)
-
-	// Bounds is the display bounding box (dimensions).
-	Bounds() image.Rectangle
-
-	// ColorModel used by the display.
-	ColorModel() color.Model
+	// Fill the display buffer with a single color.
+	Fill(color.Color)
 
 	// Show toggles the display on or off.
 	Show(bool) error
@@ -129,30 +121,27 @@ func (d *baseDisplay) commands(commands ...[]byte) (err error) {
 }
 
 func (d *baseDisplay) Clear() {
+	d.Fill(color.Black)
+}
+
+func (d *baseDisplay) Fill(c color.Color) {
 	switch i := d.Image.(type) {
 	case *pixel.MonoImage:
-		for j := range i.Pix {
-			i.Pix[j] = 0
-		}
-	case *pixel.MonoVerticalLSBImage:
-		for j := range i.Pix {
-			i.Pix[j] = 0
-		}
+		i.Fill(c)
 	case *pixel.Gray2Image:
-		for j := range i.Pix {
-			i.Pix[j] = 0
-		}
+		i.Fill(c)
 	case *pixel.Gray4Image:
-		for j := range i.Pix {
-			i.Pix[j] = 0
-		}
+		i.Fill(c)
 	case *pixel.CRGB15Image:
-		for j := range i.Pix {
-			i.Pix[j] = 0
-		}
+		i.Fill(c)
 	case *pixel.CRGB16Image:
-		for j := range i.Pix {
-			i.Pix[j] = 0
+		i.Fill(c)
+	default:
+		r := i.Bounds()
+		for y := r.Min.Y; y < r.Max.Y; y++ {
+			for x := r.Min.X; x < r.Max.X; x++ {
+				i.Set(x, y, c)
+			}
 		}
 	}
 }
