@@ -71,7 +71,7 @@ func (c *SPI) Close() error {
 }
 
 func (c *SPI) String() string {
-	return fmt.Sprintf("SPI mode=%d bits per word=%d max speed=%dHz", c.mode, c.bitsPerWord, c.maxSpeedHz)
+	return fmt.Sprintf("SPI dev=%s mode=%d bits per word=%d max speed=%dHz", c.f.Name(), c.mode, c.bitsPerWord, c.maxSpeedHz)
 }
 
 func (c *SPI) Mode() SPIMode {
