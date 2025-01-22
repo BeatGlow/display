@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"image"
 	"image/color"
+
+	"github.com/BeatGlow/display/draw"
 )
 
 // Buffer holds the pixel values and is a container that is used by most image formats in this package.
@@ -20,6 +22,12 @@ type Buffer struct {
 
 func (p *Buffer) Bounds() image.Rectangle {
 	return p.Rect
+}
+
+func (p *Buffer) Clear() {
+	for i := range p.Pix {
+		p.Pix[i] = 0x00
+	}
 }
 
 func makeBuffer(w, h, stride, size int) Buffer {
@@ -79,6 +87,16 @@ func (p *MonoImage) Set(x, y int, c color.Color) {
 	}
 }
 
+func (p *MonoImage) Fill(c color.Color) {
+	var value byte
+	if monoModel(c).(Mono).On {
+		value = 0xff
+	}
+	for i := range p.Pix {
+		p.Pix[i] = value
+	}
+}
+
 // MonoVerticalLSBImage is a 1-bit per pixel monochrome image.
 //
 // This is mostly used by SSD1xxx OLED displays.
@@ -127,28 +145,25 @@ func (p *MonoVerticalLSBImage) Set(x, y int, c color.Color) {
 	}
 }
 
+func (p *MonoVerticalLSBImage) Fill(c color.Color) {
+	var value byte
+	if monoModel(c).(Mono).On {
+		value = 0xff
+	}
+	for i := range p.Pix {
+		p.Pix[i] = value
+	}
+}
+
 // Gray2Image is a 2-bits per pixel gray scale image.
 type Gray2Image struct {
-	// Rect is the image bounding box.
-	Rect image.Rectangle
-
-	// Pix are the image pixels.
-	Pix []byte
-
-	// Stride is the Pix stride (in bytes) between vertically adjacent pixels.
-	Stride int
+	Buffer
 }
 
 func NewGray2Image(w, h int) *Gray2Image {
 	return &Gray2Image{
-		Rect:   image.Rect(0, 0, w, h),
-		Pix:    make([]byte, h*(w>>2)),
-		Stride: (w + 3) >> 2, // round up to whole bytes
+		Buffer: makeBuffer(w, h, (w+3)>>2, h*(w+3)>>2),
 	}
-}
-
-func (p *Gray2Image) Bounds() image.Rectangle {
-	return p.Rect
 }
 
 func (p *Gray2Image) ColorModel() color.Model {
@@ -176,28 +191,24 @@ func (p *Gray2Image) Set(x, y int, c color.Color) {
 	p.Pix[index] = (p.Pix[index] &^ (3 << shift)) | color<<shift
 }
 
+func (p *Gray2Image) Fill(c color.Color) {
+	value := gray2Model(c).(Gray2).Y & 0x3
+	value |= value << 2
+	value |= value << 4
+	for i := range p.Pix {
+		p.Pix[i] = value
+	}
+}
+
 // Gray4Image is a 4-bits per pixel gray scale image.
 type Gray4Image struct {
-	// Rect is the image bounding box.
-	Rect image.Rectangle
-
-	// Pix are the image pixels.
-	Pix []byte
-
-	// Stride is the Pix stride (in bytes) between vertically adjacent pixels.
-	Stride int
+	Buffer
 }
 
 func NewGray4Image(w, h int) *Gray4Image {
 	return &Gray4Image{
-		Rect:   image.Rect(0, 0, w, h),
-		Pix:    make([]byte, h*(w>>1)),
-		Stride: (w + 1) >> 1, // round up to whole bytes
+		Buffer: makeBuffer(w, h, (w+1)>>1, h*(w+1)>>1),
 	}
-}
-
-func (p *Gray4Image) Bounds() image.Rectangle {
-	return p.Rect
 }
 
 func (p *Gray4Image) ColorModel() color.Model {
@@ -228,6 +239,14 @@ func (p *Gray4Image) Set(x, y int, c color.Color) {
 		p.Pix[index] = (p.Pix[index] & 0x0f) | color<<4
 	} else {
 		p.Pix[index] = (p.Pix[index] & 0xf0) | color
+	}
+}
+
+func (p *Gray4Image) Fill(c color.Color) {
+	value := gray4Model(c).(Gray2).Y & 0x7
+	value |= value << 4
+	for i := range p.Pix {
+		p.Pix[i] = value
 	}
 }
 
@@ -266,6 +285,15 @@ func (p *CRGB15Image) Set(x, y int, c color.Color) {
 	p.Order.PutUint16(p.Pix[x*2+y*p.Stride:], v)
 }
 
+func (p *CRGB15Image) Fill(c color.Color) {
+	value := crgb15Model(c).(CRGB15).V
+	bytes := make([]byte, 2)
+	p.Order.PutUint16(bytes, value)
+	for i, l := 0, len(p.Pix); i < l; i += 2 {
+		copy(p.Pix[i:], bytes)
+	}
+}
+
 // CRGB16Image is a 16-bits per pixel 5-6-5-bit RGB image.
 type CRGB16Image struct {
 	Buffer
@@ -300,3 +328,22 @@ func (p *CRGB16Image) Set(x, y int, c color.Color) {
 	v := crgb16Model(c).(CRGB16).V
 	p.Order.PutUint16(p.Pix[x*2+y*p.Stride:], v)
 }
+
+func (p *CRGB16Image) Fill(c color.Color) {
+	value := crgb16Model(c).(CRGB16).V
+	bytes := make([]byte, 2)
+	p.Order.PutUint16(bytes, value)
+	for i, l := 0, len(p.Pix); i < l; i += 2 {
+		copy(p.Pix[i:], bytes)
+	}
+}
+
+// Interface checks.
+var (
+	_ draw.Image = (*MonoImage)(nil)
+	_ draw.Image = (*MonoVerticalLSBImage)(nil)
+	_ draw.Image = (*Gray2Image)(nil)
+	_ draw.Image = (*Gray4Image)(nil)
+	_ draw.Image = (*CRGB15Image)(nil)
+	_ draw.Image = (*CRGB16Image)(nil)
+)

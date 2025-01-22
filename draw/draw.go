@@ -2,6 +2,7 @@ package draw
 
 import (
 	"image"
+	"image/color"
 	"image/draw"
 )
 
@@ -9,7 +10,15 @@ import (
 type Drawer = draw.Drawer
 
 // Image is an alias for [image/draw.Image].
-type Image = draw.Image
+type Image interface {
+	draw.Image
+
+	// Clear the buffer (set all pixels to black).
+	Clear()
+
+	// Fill the buffer with a single color.
+	Fill(color.Color)
+}
 
 // Op is an alias for image/draw.Op
 type Op = draw.Op
