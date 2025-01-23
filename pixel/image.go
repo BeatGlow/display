@@ -8,6 +8,10 @@ import (
 	"github.com/BeatGlow/display/draw"
 )
 
+type Image interface {
+	draw.Image
+}
+
 // Buffer holds the pixel values and is a container that is used by most image formats in this package.
 type Buffer struct {
 	// Rect is the image bounding box.
