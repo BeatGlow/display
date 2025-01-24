@@ -95,7 +95,7 @@ func (d *sh1106) init(config *Config) (err error) {
 		ssd1xxxSetDisplayClockDiv, 0xF0,
 		ssd1xxxSetPrecharge, 0x22,
 		ssd1xxxSetComPins, 0x12,
-		ssd1xxxSetVCOMDetect, 0x20,
+		ssd1xxxSetVCOMDeselect, 0x20,
 		ssd1xxxSetChargePump, 0x14,
 	); err != nil {
 		return err

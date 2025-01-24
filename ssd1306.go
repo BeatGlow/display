@@ -105,7 +105,7 @@ func (d *ssd1306) init(config *Config) (err error) {
 		ssd1xxxSetComScanDec,
 		ssd1xxxSetComPins, comPins,
 		ssd1xxxSetPrecharge, 0xF1,
-		ssd1xxxSetVCOMDetect, 0x40,
+		ssd1xxxSetVCOMDeselect, 0x40,
 		ssd1xxxSetDisplayAllOnResume,
 		ssd1xxxSetNormalDisplay,
 	); err != nil {

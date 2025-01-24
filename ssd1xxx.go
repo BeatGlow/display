@@ -28,7 +28,7 @@ const (
 	ssd1xxxSetDisplayClockDiv    = 0xD5
 	ssd1xxxSetPrecharge          = 0xD9
 	ssd1xxxSetComPins            = 0xDA
-	ssd1xxxSetVCOMDetect         = 0xDB
+	ssd1xxxSetVCOMDeselect       = 0xDB
 	ssd1xxxSetCommandLock        = 0xFD
 	externalVCC                  = 0x1
 	switchCapVCC                 = 0x2
