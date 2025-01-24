@@ -254,6 +254,94 @@ func (p *Gray4Image) Fill(c color.Color) {
 	}
 }
 
+// CBGR15Image is a 15-bits per pixel 5-5-5-bit BGR image.
+type CBGR15Image struct {
+	Buffer
+	Order binary.ByteOrder
+}
+
+func NewCBGR15Image(w, h int) *CBGR15Image {
+	return &CBGR15Image{
+		Buffer: makeBuffer(w, h, w*2, w*2*h),
+		Order:  binary.BigEndian,
+	}
+}
+
+func (p *CBGR15Image) ColorModel() color.Model {
+	return CBGR15Model
+}
+
+func (p *CBGR15Image) At(x, y int) color.Color {
+	if !(image.Point{X: x, Y: y}).In(p.Rect) {
+		return color.Transparent
+	}
+
+	v := p.Order.Uint16(p.Pix[x*2+y*p.Stride:])
+	return CBGR15{v & 0x7fff}
+}
+
+func (p *CBGR15Image) Set(x, y int, c color.Color) {
+	if !(image.Point{X: x, Y: y}).In(p.Rect) {
+		return
+	}
+
+	v := cbgr15Model(c).(CBGR15).V
+	p.Order.PutUint16(p.Pix[x*2+y*p.Stride:], v)
+}
+
+func (p *CBGR15Image) Fill(c color.Color) {
+	value := cbgr15Model(c).(CBGR15).V
+	bytes := make([]byte, 2)
+	p.Order.PutUint16(bytes, value)
+	for i, l := 0, len(p.Pix); i < l; i += 2 {
+		copy(p.Pix[i:], bytes)
+	}
+}
+
+// CBGR16Image is a 16-bits per pixel 5-6-5-bit BGR image.
+type CBGR16Image struct {
+	Buffer
+	Order binary.ByteOrder
+}
+
+func NewCBGR16Image(w, h int) *CBGR16Image {
+	return &CBGR16Image{
+		Buffer: makeBuffer(w, h, w*2, w*2*h),
+		Order:  binary.BigEndian,
+	}
+}
+
+func (p *CBGR16Image) ColorModel() color.Model {
+	return CRGB16Model
+}
+
+func (p *CBGR16Image) At(x, y int) color.Color {
+	if !(image.Point{X: x, Y: y}).In(p.Rect) {
+		return color.Transparent
+	}
+
+	v := p.Order.Uint16(p.Pix[x*2+y*p.Stride:])
+	return CBGR16{v}
+}
+
+func (p *CBGR16Image) Set(x, y int, c color.Color) {
+	if !(image.Point{X: x, Y: y}).In(p.Rect) {
+		return
+	}
+
+	v := cbgr16Model(c).(CBGR16).V
+	p.Order.PutUint16(p.Pix[x*2+y*p.Stride:], v)
+}
+
+func (p *CBGR16Image) Fill(c color.Color) {
+	value := cbgr16Model(c).(CBGR16).V
+	bytes := make([]byte, 2)
+	p.Order.PutUint16(bytes, value)
+	for i, l := 0, len(p.Pix); i < l; i += 2 {
+		copy(p.Pix[i:], bytes)
+	}
+}
+
 // CRGB15Image is a 15-bits per pixel 5-5-5-bit RGB image.
 type CRGB15Image struct {
 	Buffer
@@ -344,10 +432,12 @@ func (p *CRGB16Image) Fill(c color.Color) {
 
 // Interface checks.
 var (
-	_ draw.Image = (*MonoImage)(nil)
-	_ draw.Image = (*MonoVerticalLSBImage)(nil)
-	_ draw.Image = (*Gray2Image)(nil)
-	_ draw.Image = (*Gray4Image)(nil)
-	_ draw.Image = (*CRGB15Image)(nil)
-	_ draw.Image = (*CRGB16Image)(nil)
+	_ Image = (*MonoImage)(nil)
+	_ Image = (*MonoVerticalLSBImage)(nil)
+	_ Image = (*Gray2Image)(nil)
+	_ Image = (*Gray4Image)(nil)
+	_ Image = (*CBGR15Image)(nil)
+	_ Image = (*CBGR16Image)(nil)
+	_ Image = (*CRGB15Image)(nil)
+	_ Image = (*CRGB16Image)(nil)
 )

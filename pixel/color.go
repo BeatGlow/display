@@ -7,7 +7,9 @@ var (
 	MonoModel   color.Model = color.ModelFunc(monoModel)
 	Gray2Model  color.Model = color.ModelFunc(gray2Model)
 	Gray4Model  color.Model = color.ModelFunc(gray4Model)
+	CBGR15Model color.Model = color.ModelFunc(cbgr15Model)
 	CRGB15Model color.Model = color.ModelFunc(crgb15Model)
+	CBGR16Model color.Model = color.ModelFunc(cbgr16Model)
 	CRGB16Model color.Model = color.ModelFunc(crgb16Model)
 )
 
@@ -95,9 +97,40 @@ func gray4Model(c color.Color) color.Color {
 	return Gray4{Y: uint8(y & 0xf)}
 }
 
+// CBGR15 represents a 15-bit 5-5-5 BGR color.
+type CBGR15 struct {
+	V uint16
+}
+
+func (c CBGR15) RGBA() (r, g, b, a uint32) {
+	// Build a 5-bit value at the top of the low byte of each component.
+	blu := (c.V & 0x7C00) >> 7
+	grn := (c.V & 0x03E0) >> 2
+	red := (c.V & 0x001F) << 3
+	// Duplicate the high bits in the low bits.
+	red |= red >> 5
+	grn |= grn >> 5
+	blu |= blu >> 5
+	// Duplicate the whole value in the high byte.
+	red |= red << 8
+	grn |= grn << 8
+	blu |= blu << 8
+	return uint32(red), uint32(grn), uint32(blu), 0xffff
+}
+
+func cbgr15Model(c color.Color) color.Color {
+	if _, ok := c.(CBGR15); ok {
+		return c
+	}
+	r, g, b, _ := c.RGBA()
+	b = (b & 0xF800) >> 1
+	g = (g & 0xF800) >> 6
+	r = (r & 0xF800) >> 11
+	return CRGB15{uint16(b | g | r)}
+}
+
 // CRGB15 represents a 15-bit 5-5-5 RGB color.
 type CRGB15 struct {
-	// CIgnore, 1, CRed, 5, CGreen, 5, CBlue, 5
 	V uint16
 }
 
@@ -126,6 +159,51 @@ func crgb15Model(c color.Color) color.Color {
 	g = (g & 0xF800) >> 6
 	b = (b & 0xF800) >> 11
 	return CRGB15{uint16(r | g | b)}
+}
+
+// CBGR16 represents a 16-bit 5-6-5 BGR color.
+type CBGR16 struct {
+	V uint16
+}
+
+func (c CBGR16) RGBA() (r, g, b, a uint32) {
+	// Build a 5- or 6-bit value at the top of the low byte of each component.
+	blu := (c.V & 0xF800) >> 8
+	grn := (c.V & 0x07E0) >> 3
+	red := (c.V & 0x001F) << 3
+	// Duplicate the high bits in the low bits.
+	red |= red >> 5
+	grn |= grn >> 6
+	blu |= blu >> 5
+	// Duplicate the whole value in the high byte.
+	red |= red << 8
+	grn |= grn << 8
+	blu |= blu << 8
+	return uint32(red), uint32(grn), uint32(blu), 0xffff
+}
+
+func cbgr16Model(c color.Color) color.Color {
+	switch c := c.(type) {
+	case Mono:
+		if c.On {
+			return CBGR16{0xffff}
+		}
+		return CBGR16{}
+	case Gray4:
+		y := uint16(c.Y<<1 | c.Y)
+		b := y
+		g := y >> 5
+		r := y >> 11
+		return CBGR16{b | g | r}
+	case CBGR16:
+		return c
+	default:
+		r, g, b, _ := c.RGBA()
+		b = (b & 0xF800)
+		g = (g & 0xFC00) >> 5
+		r = (r & 0xF800) >> 11
+		return CBGR16{uint16(b | g | r)}
+	}
 }
 
 // CRGB16 represents a 16-bit 5-6-5 RGB color.
