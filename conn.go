@@ -64,6 +64,7 @@ type I2CConfig struct {
 	Reset gpio.PinOut
 }
 
+// DefaultI2CConfig are the default configuration values for I²C connections.
 var DefaultI2CConfig = I2CConfig{
 	Device: -1,
 	Addr:   0x3c,
@@ -118,7 +119,7 @@ type SPIConfig struct {
 	CE        gpio.PinOut
 }
 
-// DefaultSPIConfig are the default configuration values.
+// DefaultSPIConfig are the default configuration values for SPI connections.
 var DefaultSPIConfig = SPIConfig{
 	Bus:       0,
 	Device:    0,
