@@ -211,7 +211,7 @@ type Gray4Image struct {
 
 func NewGray4Image(w, h int) *Gray4Image {
 	return &Gray4Image{
-		Buffer: makeBuffer(w, h, (w+1)>>1, h*(w+1)>>1),
+		Buffer: makeBuffer(w, h, w/2, h*(w/2)),
 	}
 }
 
