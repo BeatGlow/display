@@ -55,10 +55,10 @@ func RoundedRectangle(dst Image, rect image.Rectangle, radius int, c color.Color
 func Box(dst Image, rect image.Rectangle, c color.Color) {
 	var (
 		x = rect.Min.X
-		h = rect.Dy()
+		w = rect.Dx()
 	)
 	for y := rect.Min.Y; y < rect.Max.Y; y++ {
-		VerticalLine(dst, x, y, h, c)
+		HorizontalLine(dst, x, y, w, c)
 	}
 }
 
