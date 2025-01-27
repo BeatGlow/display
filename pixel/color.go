@@ -69,10 +69,7 @@ func gray2Model(c color.Color) color.Color {
 	r, g, b, _ := c.RGBA()
 	y := (299*r + 587*g + 114*b + 500) / 1000
 	y >>= 6
-	y |= y << 2
-	y |= y << 4
-	y |= y << 8
-	return color.Gray16{uint16(y)}
+	return Gray2{Y: uint8(y & 0x3)}
 }
 
 // Gray4 represents a 4-bit grayscale color.
@@ -126,7 +123,7 @@ func cbgr15Model(c color.Color) color.Color {
 	b = (b & 0xF800) >> 1
 	g = (g & 0xF800) >> 6
 	r = (r & 0xF800) >> 11
-	return CRGB15{uint16(b | g | r)}
+	return CBGR15{uint16(b | g | r)}
 }
 
 // CRGB15 represents a 15-bit 5-5-5 RGB color.

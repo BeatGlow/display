@@ -10,6 +10,12 @@ import (
 
 type Image interface {
 	draw.Image
+
+	// Clear the image.
+	Clear()
+
+	// Fill the image with a single color.
+	Fill(color.Color)
 }
 
 // Buffer holds the pixel values and is a container that is used by most image formats in this package.
@@ -121,7 +127,7 @@ func (p *MonoVerticalLSBImage) ColorModel() color.Model {
 
 func (p *MonoVerticalLSBImage) At(x, y int) color.Color {
 	if !(image.Point{X: x, Y: y}).In(p.Rect) {
-		return Off
+		return color.Transparent
 	}
 
 	var (
@@ -211,7 +217,7 @@ type Gray4Image struct {
 
 func NewGray4Image(w, h int) *Gray4Image {
 	return &Gray4Image{
-		Buffer: makeBuffer(w, h, w/2, h*(w/2)),
+		Buffer: makeBuffer(w, h, (w+1)/2, h*((w+1)/2)),
 	}
 }
 
@@ -247,7 +253,7 @@ func (p *Gray4Image) Set(x, y int, c color.Color) {
 }
 
 func (p *Gray4Image) Fill(c color.Color) {
-	value := gray4Model(c).(Gray2).Y & 0x7
+	value := gray4Model(c).(Gray4).Y & 0xf
 	value |= value << 4
 	for i := range p.Pix {
 		p.Pix[i] = value
@@ -312,7 +318,7 @@ func NewCBGR16Image(w, h int) *CBGR16Image {
 }
 
 func (p *CBGR16Image) ColorModel() color.Model {
-	return CRGB16Model
+	return CBGR16Model
 }
 
 func (p *CBGR16Image) At(x, y int) color.Color {
