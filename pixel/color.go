@@ -55,8 +55,8 @@ type Gray2 struct {
 }
 
 func (c Gray2) RGBA() (r, g, b, a uint32) {
-	y := uint32(c.Y) >> 6
-	y |= y << 2
+	y := uint32(c.Y) & 3
+	y *= 4
 	y |= y << 4
 	y |= y << 8
 	return y, y, y, 0xffff
@@ -78,7 +78,7 @@ type Gray4 struct {
 }
 
 func (c Gray4) RGBA() (r, g, b, a uint32) {
-	y := uint32(c.Y) >> 4
+	y := uint32(c.Y) & 0xf
 	y |= y << 4
 	y |= y << 8
 	return y, y, y, 0xffff
