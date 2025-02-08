@@ -60,7 +60,7 @@ func (d *ssd1305) Close() error {
 
 func (d *ssd1305) String() string {
 	bounds := d.Bounds()
-	return fmt.Sprintf("ssd1305 %dx%d", bounds.Dx(), bounds.Dy())
+	return fmt.Sprintf("SSD1305 OLED %dx%d", bounds.Dx(), bounds.Dy())
 }
 
 func (d *ssd1305) init(config *Config) (err error) {

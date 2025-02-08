@@ -73,7 +73,7 @@ func (d *sh1122) Close() error {
 
 func (d *sh1122) String() string {
 	bounds := d.Bounds()
-	return fmt.Sprintf("SH1122 %dx%d", bounds.Dx(), bounds.Dy())
+	return fmt.Sprintf("SH1122 OLED %dx%d", bounds.Dx(), bounds.Dy())
 }
 
 func (d *sh1122) init(config *Config) (err error) {

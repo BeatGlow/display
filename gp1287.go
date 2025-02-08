@@ -1,6 +1,7 @@
 package display
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/BeatGlow/display/pixel"
@@ -58,6 +59,10 @@ func GP1278(conn Conn, config *Config) (Display, error) {
 	}
 
 	return d, nil
+}
+
+func (d *gp1278) String() string {
+	return fmt.Sprintf("GP1278 VFD %dx%d", d.width, d.height)
 }
 
 func (d *gp1278) Close() error {

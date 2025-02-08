@@ -77,6 +77,10 @@ func GP1294(c Conn, config *Config) (Display, error) {
 	return d, nil
 }
 
+func (d *gp1294) String() string {
+	return fmt.Sprintf("GP1294 VFD %dx%d", d.width, d.height)
+}
+
 func (d *gp1294) Close() error {
 	return d.conn.Close()
 }

@@ -1,6 +1,10 @@
 package display
 
-import "github.com/BeatGlow/display/pixel"
+import (
+	"fmt"
+
+	"github.com/BeatGlow/display/pixel"
+)
 
 const (
 	gu3000DefaultWidth        = 256
@@ -35,7 +39,7 @@ func GU3000(conn Conn, config *Config) (Display, error) {
 		config.Height = gu3000DefaultHeight
 	}
 
-	if err := d.init(); err != nil {
+	if err := d.init(config); err != nil {
 		return nil, err
 	}
 	return d, nil
@@ -50,10 +54,15 @@ func (d *gu3000) init(config *Config) error {
 		return err
 	}
 
+	return nil
 }
 
 func (d *gu3000) flush() (err error) {
 	return d.c.Data(make([]byte, d.width*d.height)...)
+}
+
+func (d *gu3000) String() string {
+	return fmt.Sprintf("GU3000 VFD %dx%d", d.width, d.height)
 }
 
 func (d *gu3000) Command(cmd byte, args ...byte) (err error) {

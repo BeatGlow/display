@@ -57,7 +57,7 @@ func (d *sh1106) Close() error {
 
 func (d *sh1106) String() string {
 	bounds := d.Bounds()
-	return fmt.Sprintf("SH1106 %dx%d", bounds.Dx(), bounds.Dy())
+	return fmt.Sprintf("SH1106 OLED %dx%d", bounds.Dx(), bounds.Dy())
 }
 
 func (d *sh1106) init(config *Config) (err error) {

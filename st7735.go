@@ -113,7 +113,7 @@ func ST7735(c Conn, config *Config) (Display, error) {
 
 func (d *st7735) String() string {
 	bounds := d.Bounds()
-	return fmt.Sprintf("ST7735 %dx%d", bounds.Dx(), bounds.Dy())
+	return fmt.Sprintf("ST7735 TFT %dx%d", bounds.Dx(), bounds.Dy())
 }
 
 // command shadows display.command

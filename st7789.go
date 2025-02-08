@@ -152,7 +152,7 @@ func (d *st7789) Close() error {
 
 func (d *st7789) String() string {
 	bounds := d.Bounds()
-	return fmt.Sprintf("ST7789 %dx%d", bounds.Dx(), bounds.Dy())
+	return fmt.Sprintf("ST7789 TFT %dx%d", bounds.Dx(), bounds.Dy())
 }
 
 // command shadows baseDisplay.command

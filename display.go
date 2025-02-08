@@ -50,6 +50,9 @@ func (r Rotation) String() string {
 type Display interface {
 	draw.Image
 
+	// String gives a description of the display.
+	String() string
+
 	// Close the display driver.
 	Close() error
 
