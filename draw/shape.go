@@ -41,10 +41,10 @@ func RoundedRectangle(dst Image, rect image.Rectangle, radius int, c color.Color
 		w = rect.Dx()
 		h = rect.Dy()
 	)
-	HorizontalLine(dst, x, y, w, c)
-	HorizontalLine(dst, x, y+h-1, w, c)
-	VerticalLine(dst, x, y, h, c)
-	VerticalLine(dst, x+w-1, y, h, c)
+	HorizontalLine(dst, x+r, y, w-r*2, c)
+	HorizontalLine(dst, x+r, y+h-1, w-r*2, c)
+	VerticalLine(dst, x, y+r, h-r*2, c)
+	VerticalLine(dst, x+w-1, y+r, h-r*2, c)
 	roundedCorner(dst, x+0+r+0, y+0+r+0, r, 1, c)
 	roundedCorner(dst, x+w-r-1, y+0+r+0, r, 2, c)
 	roundedCorner(dst, x+w-r-1, y+h-r-1, r, 4, c)
@@ -73,7 +73,7 @@ func RoundedBox(dst Image, rect image.Rectangle, radius int, c color.Color) {
 	)
 	Box(dst, image.Rectangle{
 		Min: image.Point{X: x + r, Y: y},
-		Max: image.Point{X: x + r + w - 2*r, Y: y + h - 1},
+		Max: image.Point{X: x + r + w - 2*r, Y: y + h},
 	}, c)
 	filledRoundedCorner(dst, x+w-r-1, y+r, r, 1, h-2*r-1, c)
 	filledRoundedCorner(dst, x+r, y+r, r, 2, h-2*r-1, c)
