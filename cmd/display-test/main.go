@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"image/draw"
 	"os"
 	"strings"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"periph.io/x/host/v3"
 
 	"github.com/BeatGlow/display"
+	"github.com/BeatGlow/display/draw"
 	"github.com/BeatGlow/display/pixel"
 )
 
@@ -93,6 +93,8 @@ func main() {
 	fmt.Printf("using connection: %s\n", conn)
 
 	switch driver := strings.ToLower(flag.Arg(1)); driver {
+	case "gp1294":
+		output, err = display.GP1294(conn, config)
 	case "sh1106":
 		output, err = display.SH1106(conn, config)
 	case "ssd1305":
@@ -208,6 +210,9 @@ func main() {
 
 		if isGraphic {
 			draw.Draw(output, logoPos, logo, image.Point{}, drawOp)
+		} else {
+			box := image.Rect(5, 5, 125, 15)
+			draw.RoundedBox(output, box, 5, pixel.On)
 		}
 
 		/*

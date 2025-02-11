@@ -6,8 +6,9 @@ import (
 	"image/color"
 	"image/draw"
 
-	"github.com/BeatGlow/display/pixel"
 	"periph.io/x/conn/v3/gpio"
+
+	"github.com/BeatGlow/display/pixel"
 )
 
 // Errors

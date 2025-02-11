@@ -5,9 +5,10 @@ import (
 	"image"
 	"image/color"
 
+	"periph.io/x/conn/v3/gpio"
+
 	"github.com/BeatGlow/display/conn"
 	"github.com/BeatGlow/display/pixel"
-	"periph.io/x/conn/v3/gpio"
 )
 
 const (
