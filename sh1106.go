@@ -73,7 +73,7 @@ func (d *sh1106) init(config *Config) (err error) {
 	case config.Width == 128 && config.Height == 128:
 		multiplexRatio, displayOffset = 0xff, 0x02
 	default:
-		return fmt.Errorf("oled: SH1106 unsupported size %dx%d", config.Width, config.Height)
+		return fmt.Errorf("display: SH1106 unsupported size %dx%d", config.Width, config.Height)
 	}
 
 	// init base

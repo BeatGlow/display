@@ -7,16 +7,10 @@ import (
 
 	"periph.io/x/conn/v3/gpio"
 	"periph.io/x/conn/v3/gpio/gpioreg"
+	"periph.io/x/conn/v3/physic"
 	"periph.io/x/conn/v3/pin"
 
 	"github.com/BeatGlow/display/conn"
-)
-
-// Conn errors.
-var (
-	ErrResetPin = InvalidPin{"reset"}
-	ErrDCPin    = InvalidPin{"data/command (DC)"}
-	ErrNotReady = errors.New("display: ready timeout")
 )
 
 type InvalidPin struct {

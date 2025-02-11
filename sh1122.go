@@ -91,7 +91,7 @@ func (d *sh1122) init(config *Config) (err error) {
 	case config.Width == 256 && config.Height == 64:
 		displayOffset = 0x00
 	default:
-		return fmt.Errorf("oled: SH1122 unsupported size %dx%d", config.Width, config.Height)
+		return fmt.Errorf("display: SH1122 unsupported size %dx%d", config.Width, config.Height)
 	}
 
 	// init base

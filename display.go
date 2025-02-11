@@ -5,21 +5,17 @@ import (
 	"errors"
 	"image/color"
 	"image/draw"
-	"os"
 
 	"github.com/BeatGlow/display/pixel"
 	"periph.io/x/conn/v3/gpio"
 )
 
-var debug bool
-
-func init() {
-	debug = os.Getenv("DISPLAY_DEBUG") != ""
-}
-
 // Errors
 var (
-	ErrBounds = errors.New("oled: out of display bounds")
+	ErrBounds   = errors.New("display: out of bounds")
+	ErrNotReady = errors.New("display: ready timeout")
+	ErrResetPin = InvalidPin{"reset"}
+	ErrDCPin    = InvalidPin{"data/command (DC)"}
 )
 
 // Rotation defines pixel rotation.
