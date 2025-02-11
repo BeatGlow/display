@@ -347,6 +347,7 @@ func (c *spiConn) SetMaxSpeed(hz int) error {
 	return c.bus.SetMaxSpeed(hz)
 }
 
+// ParallelConfig is the configuration for a parallel (aka 8080) connection.
 type ParallelConfig struct {
 	// Data pins.
 	D0, D1, D2, D3, D4, D5, D6, D7 gpio.PinOut
@@ -356,17 +357,25 @@ type ParallelConfig struct {
 
 	// Ready pin.
 	Ready gpio.PinIn
+
+	// UpdateFrequency is the maximum update frequency.
+	UpdateFrequency physic.Frequency
 }
 
 type parallelConn struct {
 	d0, d1, d2, d3, d4, d5, d6, d7 gpio.PinOut
 	write                          gpio.PinOut
 	ready                          gpio.PinIn
+	rateLimiter                    *time.Ticker
 }
 
+// OpenParallel opens a parallel connection (also known as 8080 connection).
 func OpenParallel(config *ParallelConfig) (Conn, error) {
 	if config == nil {
 		return nil, errors.New("display: config can't be nil")
+	}
+	if config.UpdateFrequency == 0 {
+		config.UpdateFrequency = 2 * physic.MegaHertz
 	}
 	if !isValidPin(config.D0) {
 		return nil, InvalidPin{"D0"}
@@ -410,16 +419,17 @@ func OpenParallel(config *ParallelConfig) (Conn, error) {
 	}
 
 	return &parallelConn{
-		d0:    config.D0,
-		d1:    config.D1,
-		d2:    config.D2,
-		d3:    config.D3,
-		d4:    config.D4,
-		d5:    config.D5,
-		d6:    config.D6,
-		d7:    config.D7,
-		write: config.Write,
-		ready: config.Ready,
+		d0:          config.D0,
+		d1:          config.D1,
+		d2:          config.D2,
+		d3:          config.D3,
+		d4:          config.D4,
+		d5:          config.D5,
+		d6:          config.D6,
+		d7:          config.D7,
+		write:       config.Write,
+		ready:       config.Ready,
+		rateLimiter: time.NewTicker(config.UpdateFrequency.Duration()),
 	}, nil
 }
 
@@ -501,7 +511,7 @@ func (c *parallelConn) WriteByte(b byte) error {
 	if err := c.write.Out(gpio.High); err != nil {
 		return err
 	}
-	time.Sleep(500 * time.Nanosecond)
+	<-c.rateLimiter.C
 	return nil
 }
 
