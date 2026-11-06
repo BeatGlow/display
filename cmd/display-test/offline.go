@@ -360,9 +360,9 @@ func atBrightness(src image.Image, driver string, level uint8) image.Image {
 func (p brightnessPreview) At(x, y int) color.Color {
 	r, g, b, a := color.RGBAModel.Convert(p.Image.At(x, y)).RGBA()
 	return color.RGBA{
-		R: uint8((r * uint32(p.scale)) / (0xffff * 255)),
-		G: uint8((g * uint32(p.scale)) / (0xffff * 255)),
-		B: uint8((b * uint32(p.scale)) / (0xffff * 255)),
+		R: uint8((r * uint32(p.scale)) / 0xffff),
+		G: uint8((g * uint32(p.scale)) / 0xffff),
+		B: uint8((b * uint32(p.scale)) / 0xffff),
 		A: uint8(a >> 8),
 	}
 }
