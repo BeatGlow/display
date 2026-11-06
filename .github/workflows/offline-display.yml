@@ -42,6 +42,7 @@ jobs:
             while IFS= read -r path; do
               case "$path" in
                 gu3000.go) drivers+=(gu3000) ;;
+                gu256x64d7000.go) drivers+=(gu256x64d7000) ;;
                 gp1287.go) drivers+=(gp1278) ;;
                 gp1294.go) drivers+=(gp1294) ;;
                 sh1106.go) drivers+=(sh1106) ;;
@@ -57,7 +58,7 @@ jobs:
           fi
 
           if [[ "$all_drivers" == "1" || ${#drivers[@]} == 0 ]]; then
-            drivers=(gu3000 gp1278 gp1294 sh1106 ssd1305 ssd1306 ssd1322 sh1122 st7735 st7789)
+            drivers=(gu3000 gu256x64d7000 gp1278 gp1294 sh1106 ssd1305 ssd1306 ssd1322 sh1122 st7735 st7789)
           fi
 
           drivers_json='['

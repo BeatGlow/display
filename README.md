@@ -32,12 +32,59 @@ dimensions and color-model previews without a specific controller protocol.
 
 For a CI matrix, run the offline command once for each driver and give each
 run its own PNG and trace paths. Supported driver names are `gu3000`, `gp1278`,
-`gp1294`, `sh1106`, `ssd1305`, `ssd1306`, `ssd1322`,
+`gu256x64d7000`, `gp1294`, `sh1106`, `ssd1305`, `ssd1306`, `ssd1322`,
 `sh1122`, `st7735`, and `st7789`.
 
 ```sh
 mkdir -p artifacts
-for driver in gu3000 gp1278 gp1294 sh1106 ssd1305 ssd1306 ssd1322 sh1122 st7735 st7789; do
+for driver in gu3000 gu256x64d7000 gp1278 gp1294 sh1106 ssd1305 ssd1306 ssd1322 sh1122 st7735 st7789; do
   go run ./cmd/display-test -contrast 128 -output "artifacts/$driver.png" -trace "artifacts/$driver.json" offline "$driver"
 done
 ```
+
+## GU256X64D-7000 VFD
+
+The GU256X64D-7000 driver uses the same API for the module's 8-bit parallel
+and asynchronous serial interfaces. Pass a `Conn` from `OpenParallel` for
+parallel mode, or open the serial port with `OpenUART`:
+
+```go
+import "periph.io/x/conn/v3/gpio/gpioreg"
+
+conn, err := display.OpenUART(&display.UARTConfig{
+	Port: "/dev/ttyUSB0",
+	Baud: 38400,
+	Busy: gpioreg.ByName("GPIO17"), // optional, through an SBUSY level shifter
+})
+if err != nil {
+	return err
+}
+defer conn.Close()
+
+screen, err := display.GU256X64D7000(conn, &display.Config{})
+if err != nil {
+	return err
+}
+```
+
+The serial input is RS-232 level, so connect a TTL UART through a suitable
+RS-232 level converter. The module defaults to 38400 baud when both baud
+selection jumpers are open; set `UARTConfig.Baud` to match its jumper setting.
+You can pass the optional `UARTConfig.Busy` pin to honor the module's SBUSY
+signal (use a level shifter for this output too). The driver uses a monochrome
+framebuffer (one bit per dot); the module's brightness setting changes the
+whole display through eight global levels. The offline check verifies the
+bitmap command, transfer size, framebuffer data, brightness command, and
+reconstructed display image.
+
+For parallel mode, pass a connection from `display.OpenParallel` with the
+module's D0-D7 and /WR pins configured to the same driver constructor.
+
+The command-line demo can open the serial interface with:
+
+```sh
+go run ./cmd/display-test -uart-port /dev/ttyUSB0 -uart-baud 38400 uart gu256x64d7000
+```
+
+See [the datasheet](doc/GU256X64D-7000.pdf) for interface, command, and
+electrical details.
