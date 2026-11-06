@@ -96,6 +96,11 @@ func (fb *linuxFrameBuffer) Bounds() image.Rectangle {
 	return fb.Buffer.Bounds()
 }
 
+// Clear clears the mapped framebuffer.
+func (fb *linuxFrameBuffer) Clear() {
+	fb.Buffer.Clear()
+}
+
 // Close the framebuffer device
 func (fb *linuxFrameBuffer) Close() error {
 	if err := syscall.Munmap(fb.Buffer.Pix); err != nil {
@@ -114,17 +119,6 @@ func (fb *linuxFrameBuffer) Fill(c color.Color) {
 		im.Fill(c)
 	case *pixel.CRGB16Image:
 		im.Fill(c)
-	case *image.RGBA:
-		r, g, b, a := c.RGBA()
-		pix := []byte{
-			byte(r >> 8),
-			byte(g >> 8),
-			byte(b >> 8),
-			byte(a >> 8),
-		}
-		for i, l := 0, len(fb.Buffer.Pix); i < l; i += 4 {
-			copy(fb.Buffer.Pix[i:], pix)
-		}
 	}
 }
 
