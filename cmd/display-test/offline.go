@@ -45,7 +45,7 @@ func (c *recordingConn) Data(data ...byte) error {
 	c.events = append(c.events, busEvent{Type: "data", Bytes: append([]byte(nil), data...)})
 	return nil
 }
-func (c *recordingConn) Interface() interface{} { return c }
+func (c *recordingConn) Interface() any { return c }
 
 // VerifyFrame checks that Refresh emitted the framebuffer in the format the
 // selected driver is expected to send. Controller command bytes stay in the
@@ -134,8 +134,8 @@ func decodeFrame(driver string, frame image.Image, encoded []byte) (*image.RGBA,
 			}
 		}
 		pages := (h + 7) / 8
-		for y := 0; y < h; y++ {
-			for x := 0; x < w; x++ {
+		for y := range h {
+			for x := range w {
 				index := (y/8)*w + x
 				if strings.EqualFold(driver, "gp1294") {
 					index = x*pages + y/8
@@ -151,8 +151,8 @@ func decodeFrame(driver string, frame image.Image, encoded []byte) (*image.RGBA,
 	}
 	if _, ok := kind.(pixel.Gray2); ok {
 		stride := (w + 3) / 4
-		for y := 0; y < h; y++ {
-			for x := 0; x < w; x++ {
+		for y := range h {
+			for x := range w {
 				v := (encoded[y*stride+x/4] >> uint((3-x%4)*2)) & 3
 				gray := v * 0x55
 				decoded.SetRGBA(x, y, color.RGBA{R: gray, G: gray, B: gray, A: 0xff})
@@ -162,8 +162,8 @@ func decodeFrame(driver string, frame image.Image, encoded []byte) (*image.RGBA,
 	}
 	if _, ok := kind.(pixel.Gray4); ok {
 		stride := (w + 1) / 2
-		for y := 0; y < h; y++ {
-			for x := 0; x < w; x++ {
+		for y := range h {
+			for x := range w {
 				v := encoded[y*stride+x/2]
 				if x&1 == 0 {
 					v >>= 4
@@ -177,8 +177,8 @@ func decodeFrame(driver string, frame image.Image, encoded []byte) (*image.RGBA,
 		return decoded, nil
 	}
 	bytesPerPixel := 2
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			i := (y*w + x) * bytesPerPixel
 			v := uint16(encoded[i])<<8 | uint16(encoded[i+1])
 			var r, g, b, a uint32
@@ -246,14 +246,14 @@ func encodeFrame(driver string, frame image.Image) ([]byte, error) {
 	case pixel.Mono:
 		pages := (height + 7) / 8
 		if strings.EqualFold(driver, "gp1294") {
-			for x := 0; x < width; x++ {
-				for page := 0; page < pages; page++ {
+			for x := range width {
+				for page := range pages {
 					out = append(out, monoByte(frame, x, page*8))
 				}
 			}
 		} else {
-			for page := 0; page < pages; page++ {
-				for x := 0; x < width; x++ {
+			for page := range pages {
+				for x := range width {
 					out = append(out, monoByte(frame, x, page*8))
 				}
 			}
@@ -261,8 +261,8 @@ func encodeFrame(driver string, frame image.Image) ([]byte, error) {
 	case pixel.Gray2:
 		stride := (width + 3) / 4
 		out = make([]byte, stride*height)
-		for y := 0; y < height; y++ {
-			for x := 0; x < width; x++ {
+		for y := range height {
+			for x := range width {
 				v := pixel.Gray2Model.Convert(frame.At(x, y)).(pixel.Gray2).Y & 3
 				out[y*stride+x/4] |= v << uint((3-x%4)*2)
 			}
@@ -270,8 +270,8 @@ func encodeFrame(driver string, frame image.Image) ([]byte, error) {
 	case pixel.Gray4:
 		stride := (width + 1) / 2
 		out = make([]byte, stride*height)
-		for y := 0; y < height; y++ {
-			for x := 0; x < width; x++ {
+		for y := range height {
+			for x := range width {
 				v := pixel.Gray4Model.Convert(frame.At(x, y)).(pixel.Gray4).Y & 0xf
 				if x&1 == 0 {
 					out[y*stride+x/2] |= v << 4
@@ -281,15 +281,15 @@ func encodeFrame(driver string, frame image.Image) ([]byte, error) {
 			}
 		}
 	case pixel.CRGB15:
-		for y := 0; y < height; y++ {
-			for x := 0; x < width; x++ {
+		for y := range height {
+			for x := range width {
 				v := pixel.CRGB15Model.Convert(frame.At(x, y)).(pixel.CRGB15).V
 				out = append(out, byte(v>>8), byte(v))
 			}
 		}
 	case pixel.CRGB16:
-		for y := 0; y < height; y++ {
-			for x := 0; x < width; x++ {
+		for y := range height {
+			for x := range width {
 				v := pixel.CRGB16Model.Convert(frame.At(x, y)).(pixel.CRGB16).V
 				out = append(out, byte(v>>8), byte(v))
 			}

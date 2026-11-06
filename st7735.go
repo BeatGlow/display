@@ -324,10 +324,7 @@ func (d *st7735) Refresh() error {
 
 	pix := d.Image.(*pixel.CRGB16Image).Pix
 	for i, l := 0, len(pix); i < l; i += batchSize {
-		j := i + batchSize
-		if j > l {
-			j = l
-		}
+		j := min(i+batchSize, l)
 		if err := d.data(pix[i:j]...); err != nil {
 			return err
 		}

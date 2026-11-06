@@ -38,7 +38,7 @@ type Conn interface {
 	Data(...byte) error
 
 	// Interface is the underlying interface.
-	Interface() interface{}
+	Interface() any
 
 	// Send data over the serial interface.
 	//Send(data []byte, isCommand bool) error
@@ -104,17 +104,17 @@ func OpenI2C(config *I2CConfig) (Conn, error) {
 	}, nil
 }
 
-func (c *i2cConn) Interface() interface{} {
+func (c *i2cConn) Interface() any {
 	return c.I2C
 }
 
 func (c *i2cConn) Command(cmnd byte, args ...byte) (err error) {
-	_, err = c.I2C.Write(append([]byte{0x00, cmnd}, args...))
+	_, err = c.Write(append([]byte{0x00, cmnd}, args...))
 	return
 }
 
 func (c *i2cConn) Data(data ...byte) (err error) {
-	_, err = c.I2C.Write(append([]byte{0x40}, data...))
+	_, err = c.Write(append([]byte{0x40}, data...))
 	return
 }
 
@@ -228,7 +228,7 @@ func OpenSPI(config *SPIConfig) (Conn, error) {
 	}, nil
 }
 
-func (c *spiConn) Interface() interface{} {
+func (c *spiConn) Interface() any {
 	return c.bus
 }
 
@@ -431,7 +431,7 @@ func OpenParallel(config *ParallelConfig) (Conn, error) {
 	}, nil
 }
 
-func (c *parallelConn) Interface() interface{} {
+func (c *parallelConn) Interface() any {
 	return c
 }
 

@@ -109,7 +109,11 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			fatal(fmt.Errorf("failed to close display connection: %w", err))
+		}
+	}()
 	fmt.Printf("using connection: %s\n", conn)
 
 	switch driver := strings.ToLower(flag.Arg(1)); driver {

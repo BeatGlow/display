@@ -57,12 +57,12 @@ func Open(name string) (display.Display, error) {
 	}
 
 	// Map pixel buffer.
-	if fb.Buffer.Pix, err = syscall.Mmap(int(fb.fd), 0, int(fb.info.SmemLen), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED); err != nil {
+	if fb.Pix, err = syscall.Mmap(int(fb.fd), 0, int(fb.info.SmemLen), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED); err != nil {
 		_ = f.Close()
 		return nil, err
 	}
 
-	fb.Buffer.Rect = image.Rect(
+	fb.Rect = image.Rect(
 		int(fb.screenInfo.Xoffset), int(fb.screenInfo.Yoffset),
 		int(fb.screenInfo.Xres), int(fb.screenInfo.Yres),
 	)
@@ -74,17 +74,17 @@ func Open(name string) (display.Display, error) {
 func (fb *linuxFrameBuffer) setImage() {
 	switch fb.model {
 	case pixel.CBGR15Model:
-		fb.Buffer.Stride = int(fb.screenInfo.Width) * 2
+		fb.Stride = int(fb.screenInfo.Width) * 2
 	case pixel.CBGR16Model:
-		fb.Buffer.Stride = int(fb.screenInfo.Width) * 2
+		fb.Stride = int(fb.screenInfo.Width) * 2
 	case pixel.CRGB15Model:
-		fb.Buffer.Stride = int(fb.screenInfo.Width) * 2
+		fb.Stride = int(fb.screenInfo.Width) * 2
 		fb.Image = &pixel.CRGB15Image{
 			Buffer: fb.Buffer,
 			Order:  fb.order,
 		}
 	case pixel.CRGB16Model:
-		fb.Buffer.Stride = int(fb.screenInfo.Width) * 2
+		fb.Stride = int(fb.screenInfo.Width) * 2
 		fb.Image = &pixel.CRGB15Image{
 			Buffer: fb.Buffer,
 			Order:  fb.order,
@@ -93,7 +93,7 @@ func (fb *linuxFrameBuffer) setImage() {
 }
 
 func (fb *linuxFrameBuffer) Bounds() image.Rectangle {
-	return fb.Buffer.Bounds()
+	return fb.Rect
 }
 
 func (fb *linuxFrameBuffer) String() string {
@@ -107,7 +107,7 @@ func (fb *linuxFrameBuffer) Clear() {
 
 // Close the framebuffer device
 func (fb *linuxFrameBuffer) Close() error {
-	if err := syscall.Munmap(fb.Buffer.Pix); err != nil {
+	if err := syscall.Munmap(fb.Pix); err != nil {
 		return err
 	}
 	return fb.f.Close()

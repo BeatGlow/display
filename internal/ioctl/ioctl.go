@@ -36,7 +36,7 @@ func (c Command) String() string {
 }
 
 // Do executes the ioctl call.
-func Do(fd uintptr, command Command, ptr interface{}) error {
+func Do(fd uintptr, command Command, ptr any) error {
 	var p uintptr
 
 	if ptr != nil {
@@ -66,7 +66,7 @@ func Encode(mode Mode, size uint16, cmd uintptr) Command {
 }
 
 // Pointer to a value.
-func Pointer(mode Mode, ref interface{}, cmd uintptr) Command {
+func Pointer(mode Mode, ref any, cmd uintptr) Command {
 	size := uint16(reflect.TypeOf(ref).Elem().Size())
 	return Encode(mode, size, cmd)
 }
