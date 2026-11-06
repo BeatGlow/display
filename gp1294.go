@@ -35,7 +35,6 @@ type gp1294 struct {
 	spiConn       *conn.SPI
 	width, height int
 	pix           []byte
-	pageSize      int
 }
 
 func GP1294(c Conn, config *Config) (Display, error) {

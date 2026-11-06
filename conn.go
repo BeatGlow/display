@@ -170,7 +170,6 @@ var ValidSPISpeeds = []uint32{
 
 type spiConn struct {
 	bus       *conn.SPI
-	debug     bool
 	reset     gpio.PinOut
 	dc        gpio.PinOut
 	dcLevel   gpio.Level
@@ -226,7 +225,6 @@ func OpenSPI(config *SPIConfig) (Conn, error) {
 		reset:     config.Reset,
 		dc:        config.DC,
 		cs:        config.CE,
-		//debug:        true,
 	}, nil
 }
 
@@ -429,7 +427,7 @@ func OpenParallel(config *ParallelConfig) (Conn, error) {
 		d7:          config.D7,
 		write:       config.Write,
 		ready:       config.Ready,
-		rateLimiter: time.NewTicker(config.UpdateFrequency.Duration()),
+		rateLimiter: time.NewTicker(config.UpdateFrequency.Period()),
 	}, nil
 }
 

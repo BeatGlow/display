@@ -17,8 +17,7 @@ const (
 
 type ssd1305 struct {
 	monoDisplay
-	pageSize   int
-	pageOffset int
+	pageSize int
 }
 
 // SSD1305 is a driver for the Sino Wealth SSD1305 OLED display.

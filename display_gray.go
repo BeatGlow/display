@@ -19,7 +19,6 @@ func (d *gray2Display) init(config *Config) error {
 
 type gray4Display struct {
 	baseDisplay
-	useMono bool
 }
 
 func (d *gray4Display) init(config *Config) error {

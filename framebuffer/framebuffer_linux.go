@@ -210,16 +210,6 @@ type linuxVarScreenInfo struct {
 	Reserved                [4]uint32
 }
 
-// linuxPixelFormat of the framebuffer
-type linuxPixelFormat int
-
-const (
-	// UnknownPixelFormat for when detection is not (yet) implemented
-	linuxUnknownPixelFormat linuxPixelFormat = iota
-	// BGR565 is a 16bit pixelformat
-	linuxBGR565
-)
-
 func linuxParseColorModel(info *linuxVarScreenInfo) (color.Model, binary.ByteOrder, error) {
 	if info == nil {
 		return nil, nil, errors.New("invalid VarScreenInfo")
