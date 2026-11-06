@@ -12,8 +12,10 @@ permissions:
   pull-requests: read
 
 jobs:
-  offline-display:
+  select-drivers:
     runs-on: ubuntu-latest
+    outputs:
+      drivers: ${{ steps.select.outputs.drivers }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -58,8 +60,21 @@ jobs:
             drivers=(gu3000 gp1278 gp1294 sh1106 ssd1305 ssd1306 ssd1322 sh1122 st7735 st7789)
           fi
 
-          printf 'drivers=%s\n' "${drivers[*]}" >> "$GITHUB_OUTPUT"
+          drivers_json='['
+          for driver in "${drivers[@]}"; do
+            drivers_json+="\"$driver\","
+          done
+          drivers_json="${drivers_json%,}]"
+          printf 'drivers=%s\n' "$drivers_json" >> "$GITHUB_OUTPUT"
           printf 'Selected offline drivers: %s\n' "${drivers[*]}"
+
+  offline-virtual:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
 
       - name: Run virtual framebuffer color checks
         shell: bash
@@ -73,27 +88,40 @@ jobs:
               offline virtual
           done
 
-      - name: Run selected driver emulations
+      - uses: actions/upload-artifact@v4
         if: always()
+        with:
+          name: offline-display-virtual
+          path: ${{ runner.temp }}/display-artifacts/
+          if-no-files-found: error
+
+  offline-driver:
+    needs: select-drivers
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        driver: ${{ fromJSON(needs.select-drivers.outputs.drivers) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run driver emulation
         env:
-          DRIVERS: ${{ steps.select.outputs.drivers }}
+          DRIVER: ${{ matrix.driver }}
         shell: bash
         run: |
-          failed=0
-          for driver in $DRIVERS; do
-            if ! go run ./cmd/display-test \
-              -contrast 128 \
-              -output "$RUNNER_TEMP/display-artifacts/$driver.png" \
-              -trace "$RUNNER_TEMP/display-artifacts/$driver.json" \
-              offline "$driver"; then
-              failed=1
-            fi
-          done
-          exit "$failed"
+          mkdir -p "$RUNNER_TEMP/display-artifacts"
+          go run ./cmd/display-test \
+            -contrast 128 \
+            -output "$RUNNER_TEMP/display-artifacts/$DRIVER.png" \
+            -trace "$RUNNER_TEMP/display-artifacts/$DRIVER.json" \
+            offline "$DRIVER"
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: offline-display-previews
+          name: offline-display-${{ matrix.driver }}
           path: ${{ runner.temp }}/display-artifacts/
           if-no-files-found: error
