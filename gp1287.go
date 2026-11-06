@@ -52,7 +52,9 @@ func GP1278(conn Conn, config *Config) (Display, error) {
 
 	d.height = config.Height
 	d.width = config.Width
-	d.pageSize = config.Height >> 3
+	// The controller writes whole 8-dot pages. Include a final partial page
+	// when the visible height is not divisible by eight (for example, 50 dots).
+	d.pageSize = (config.Height + 7) >> 3
 
 	if err := d.init(config); err != nil {
 		return nil, err
@@ -88,6 +90,7 @@ func (d *gp1278) commands(commands ...[]byte) (err error) {
 
 func (d *gp1278) data(data ...byte) error {
 	// Swap bits, since the driver expects LSB first.
+	data = append([]byte(nil), data...)
 	for i, v := range data {
 		data[i] = rev8tab[v]
 	}

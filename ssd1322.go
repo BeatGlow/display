@@ -198,7 +198,7 @@ func (d *ssd1322) clearRAM() (err error) {
 	}
 
 	blank := make([]byte, 120) // 480/4
-	for y := 0; y < 128; y++ {
+	for range 128 {
 		if err = d.data(blank...); err != nil {
 			return
 		}

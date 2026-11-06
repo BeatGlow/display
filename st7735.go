@@ -118,7 +118,7 @@ func (d *st7735) String() string {
 
 // command shadows display.command
 func (d *st7735) command(cmnd byte, data ...byte) (err error) {
-	if err = d.command(cmnd); err != nil {
+	if err = d.c.Command(cmnd); err != nil {
 		return
 	}
 	for _, data := range data {
@@ -324,10 +324,7 @@ func (d *st7735) Refresh() error {
 
 	pix := d.Image.(*pixel.CRGB16Image).Pix
 	for i, l := 0, len(pix); i < l; i += batchSize {
-		j := i + batchSize
-		if j > l {
-			j = l
-		}
+		j := min(i+batchSize, l)
 		if err := d.data(pix[i:j]...); err != nil {
 			return err
 		}

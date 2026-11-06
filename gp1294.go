@@ -35,7 +35,6 @@ type gp1294 struct {
 	spiConn       *conn.SPI
 	width, height int
 	pix           []byte
-	pageSize      int
 }
 
 func GP1294(c Conn, config *Config) (Display, error) {
@@ -178,7 +177,7 @@ func (d *gp1294) At(x, y int) color.Color {
 	}
 
 	offset := x*(d.height/8) + y/8
-	if d.pix[offset]&(1<<y%8) != 0 {
+	if d.pix[offset]&(1<<(y%8)) != 0 {
 		return pixel.On
 	}
 	return pixel.Off

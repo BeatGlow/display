@@ -46,7 +46,7 @@ func TestGray2(t *testing.T) {
 }
 
 func TestGray4(t *testing.T) {
-	for y := 0; y < 16; y++ {
+	for y := range 16 {
 		t.Run("", func(it *testing.T) {
 			c := Gray4{Y: uint8(y)}
 			r, g, b, _ := c.RGBA()

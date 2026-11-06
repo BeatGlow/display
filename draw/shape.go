@@ -181,7 +181,7 @@ func bresenham(dst Image, x1, y1, x2, y2 int, c color.Color) {
 	// Is line a vertical ?
 	case x1 == x2:
 		if y1 > y2 {
-			y1, y2 = y2, y1
+			y1 = y2
 		}
 		for ; dy != 0; dy-- {
 			dst.Set(x1, y1, c)

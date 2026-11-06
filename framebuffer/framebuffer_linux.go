@@ -57,12 +57,12 @@ func Open(name string) (display.Display, error) {
 	}
 
 	// Map pixel buffer.
-	if fb.Buffer.Pix, err = syscall.Mmap(int(fb.fd), 0, int(fb.info.SmemLen), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED); err != nil {
+	if fb.Pix, err = syscall.Mmap(int(fb.fd), 0, int(fb.info.SmemLen), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED); err != nil {
 		_ = f.Close()
 		return nil, err
 	}
 
-	fb.Buffer.Rect = image.Rect(
+	fb.Rect = image.Rect(
 		int(fb.screenInfo.Xoffset), int(fb.screenInfo.Yoffset),
 		int(fb.screenInfo.Xres), int(fb.screenInfo.Yres),
 	)
@@ -74,17 +74,17 @@ func Open(name string) (display.Display, error) {
 func (fb *linuxFrameBuffer) setImage() {
 	switch fb.model {
 	case pixel.CBGR15Model:
-		fb.Buffer.Stride = int(fb.screenInfo.Width) * 2
+		fb.Stride = int(fb.screenInfo.Width) * 2
 	case pixel.CBGR16Model:
-		fb.Buffer.Stride = int(fb.screenInfo.Width) * 2
+		fb.Stride = int(fb.screenInfo.Width) * 2
 	case pixel.CRGB15Model:
-		fb.Buffer.Stride = int(fb.screenInfo.Width) * 2
+		fb.Stride = int(fb.screenInfo.Width) * 2
 		fb.Image = &pixel.CRGB15Image{
 			Buffer: fb.Buffer,
 			Order:  fb.order,
 		}
 	case pixel.CRGB16Model:
-		fb.Buffer.Stride = int(fb.screenInfo.Width) * 2
+		fb.Stride = int(fb.screenInfo.Width) * 2
 		fb.Image = &pixel.CRGB15Image{
 			Buffer: fb.Buffer,
 			Order:  fb.order,
@@ -93,12 +93,21 @@ func (fb *linuxFrameBuffer) setImage() {
 }
 
 func (fb *linuxFrameBuffer) Bounds() image.Rectangle {
-	return fb.Buffer.Bounds()
+	return fb.Rect
+}
+
+func (fb *linuxFrameBuffer) String() string {
+	return fb.f.Name()
+}
+
+// Clear clears the mapped framebuffer.
+func (fb *linuxFrameBuffer) Clear() {
+	fb.Buffer.Clear()
 }
 
 // Close the framebuffer device
 func (fb *linuxFrameBuffer) Close() error {
-	if err := syscall.Munmap(fb.Buffer.Pix); err != nil {
+	if err := syscall.Munmap(fb.Pix); err != nil {
 		return err
 	}
 	return fb.f.Close()
@@ -114,17 +123,6 @@ func (fb *linuxFrameBuffer) Fill(c color.Color) {
 		im.Fill(c)
 	case *pixel.CRGB16Image:
 		im.Fill(c)
-	case *image.RGBA:
-		r, g, b, a := c.RGBA()
-		pix := []byte{
-			byte(r >> 8),
-			byte(g >> 8),
-			byte(b >> 8),
-			byte(a >> 8),
-		}
-		for i, l := 0, len(fb.Buffer.Pix); i < l; i += 4 {
-			copy(fb.Buffer.Pix[i:], pix)
-		}
 	}
 }
 
@@ -211,16 +209,6 @@ type linuxVarScreenInfo struct {
 	Colorspace              uint32
 	Reserved                [4]uint32
 }
-
-// linuxPixelFormat of the framebuffer
-type linuxPixelFormat int
-
-const (
-	// UnknownPixelFormat for when detection is not (yet) implemented
-	linuxUnknownPixelFormat linuxPixelFormat = iota
-	// BGR565 is a 16bit pixelformat
-	linuxBGR565
-)
 
 func linuxParseColorModel(info *linuxVarScreenInfo) (color.Model, binary.ByteOrder, error) {
 	if info == nil {

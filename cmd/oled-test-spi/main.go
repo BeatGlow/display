@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/beatglow/display/conn"
+	"github.com/BeatGlow/display/conn"
 )
 
 func main() {
