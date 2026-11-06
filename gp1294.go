@@ -177,7 +177,7 @@ func (d *gp1294) At(x, y int) color.Color {
 	}
 
 	offset := x*(d.height/8) + y/8
-	if d.pix[offset]&(1<<y%8) != 0 {
+	if d.pix[offset]&(1<<(y%8)) != 0 {
 		return pixel.On
 	}
 	return pixel.Off
