@@ -89,12 +89,59 @@ jobs:
               offline virtual
           done
 
-      - uses: actions/upload-artifact@v6
+      - name: Create browser-viewable color preview gallery
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from base64 import b64encode
+          from html import escape
+          from pathlib import Path
+
+          directory = Path("${{ runner.temp }}/display-artifacts")
+          images = sorted(directory.glob("virtual-*.png"))
+          if len(images) != 5:
+              raise SystemExit(f"expected 5 preview PNGs, found {len(images)}")
+
+          cards = []
+          for image in images:
+              encoded = b64encode(image.read_bytes()).decode("ascii")
+              cards.append(
+                  f'<section><h2>{escape(image.stem.removeprefix("virtual-"))}</h2>'
+                  f'<img src="data:image/png;base64,{encoded}" alt="{escape(image.stem)}"></section>'
+              )
+
+          page = """<!doctype html>
+          <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+          <title>Offline virtual display previews</title>
+          <style>body{font:16px system-ui;margin:2rem;background:#181818;color:#eee}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem}section{padding:1rem;background:#282828;border-radius:.5rem}img{display:block;max-width:100%;height:auto;image-rendering:pixelated;background:#000}</style>
+          <h1>Offline virtual display previews</h1><main>
+          """ + "\n".join(cards) + "\n</main></html>"
+          (directory / "virtual-gallery.html").write_text(page, encoding="utf-8")
+          PY
+
+      - name: Upload browser-viewable color preview gallery
+        id: preview
         if: always()
+        uses: actions/upload-artifact@v7
         with:
-          name: offline-display-virtual
-          path: ${{ runner.temp }}/display-artifacts/
+          path: ${{ runner.temp }}/display-artifacts/virtual-gallery.html
+          archive: false
           if-no-files-found: error
+
+      - name: Upload virtual display traces
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: offline-display-virtual-traces
+          path: ${{ runner.temp }}/display-artifacts/virtual-*.json
+          if-no-files-found: error
+
+      - name: Link preview gallery in job summary
+        if: always() && steps.preview.outputs.artifact-url != ''
+        env:
+          PREVIEW_URL: ${{ steps.preview.outputs.artifact-url }}
+        run: |
+          printf '### Virtual display previews\n\n[Open the preview gallery in your browser](%s)\n' "$PREVIEW_URL" >> "$GITHUB_STEP_SUMMARY"
 
   offline-driver:
     needs: select-drivers
@@ -120,9 +167,27 @@ jobs:
             -trace "$RUNNER_TEMP/display-artifacts/$DRIVER.json" \
             offline "$DRIVER"
 
-      - uses: actions/upload-artifact@v6
+      - name: Upload browser-viewable driver preview
+        id: preview
         if: always()
+        uses: actions/upload-artifact@v7
         with:
-          name: offline-display-${{ matrix.driver }}
-          path: ${{ runner.temp }}/display-artifacts/
+          path: ${{ runner.temp }}/display-artifacts/${{ matrix.driver }}.png
+          archive: false
           if-no-files-found: error
+
+      - name: Upload driver trace
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: offline-display-${{ matrix.driver }}-trace
+          path: ${{ runner.temp }}/display-artifacts/${{ matrix.driver }}.json
+          if-no-files-found: error
+
+      - name: Link preview in job summary
+        if: always() && steps.preview.outputs.artifact-url != ''
+        env:
+          DRIVER: ${{ matrix.driver }}
+          PREVIEW_URL: ${{ steps.preview.outputs.artifact-url }}
+        run: |
+          printf '### %s preview\n\n[Open PNG preview in your browser](%s)\n' "$DRIVER" "$PREVIEW_URL" >> "$GITHUB_STEP_SUMMARY"
