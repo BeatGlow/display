@@ -96,6 +96,10 @@ func (fb *linuxFrameBuffer) Bounds() image.Rectangle {
 	return fb.Buffer.Bounds()
 }
 
+func (fb *linuxFrameBuffer) String() string {
+	return fb.f.Name()
+}
+
 // Clear clears the mapped framebuffer.
 func (fb *linuxFrameBuffer) Clear() {
 	fb.Buffer.Clear()
