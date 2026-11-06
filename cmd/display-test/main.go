@@ -27,6 +27,9 @@ func main() {
 	i2cAddrFlag := flag.Uint("i2c-addr", uint(display.DefaultI2CConfig.Addr), "I²C device address")
 	spiBusFlag := flag.Int("spi-bus", 0, "SPI bus")
 	spiDeviceFlag := flag.Int("spi-dev", 0, "SPI device")
+	uartPortFlag := flag.String("uart-port", "", "UART port name or alias")
+	uartBaudFlag := flag.Int("uart-baud", 38400, "UART baud rate (module default)")
+	uartBusyPinFlag := flag.String("uart-busy", "", "UART SBUSY GPIO pin (optional)")
 	resetPinFlag := flag.String("reset", "GPIO25", "Reset GPIO pin")
 	dcPinFlag := flag.String("dc", "GPIO24", "Data/Command GPIO pin (DC)")
 	cePinFlag := flag.String("ce", "GPIO8", "Chip enable GPIO pin")
@@ -103,6 +106,12 @@ func main() {
 			DC:     gpioreg.ByName(*dcPinFlag),
 			CE:     gpioreg.ByName(*cePinFlag),
 		})
+	case "uart":
+		conn, err = display.OpenUART(&display.UARTConfig{
+			Port: *uartPortFlag,
+			Baud: *uartBaudFlag,
+			Busy: gpioreg.ByName(*uartBusyPinFlag),
+		})
 	default:
 		err = fmt.Errorf("unsupported bus type %q", busType)
 	}
@@ -133,6 +142,8 @@ func main() {
 		output, err = display.GP1278(conn, config)
 	case "gu3000":
 		output, err = display.GU3000(conn, config)
+	case "gu256x64d7000":
+		output, err = display.GU256X64D7000(conn, config)
 	case "virtual":
 		if !offline {
 			err = fmt.Errorf("the virtual driver is only available with the offline bus")

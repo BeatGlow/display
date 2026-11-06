@@ -78,6 +78,17 @@ func (c *recordingConn) VerifyFrame(driver string, frame image.Image, from int) 
 		}
 		extra := 0
 		switch driver {
+		case "gu256x64d7000":
+			header := []byte{
+				0x1f, 0x28, 0x66, 0x11,
+				byte(frame.Bounds().Dx()), byte(frame.Bounds().Dx() >> 8),
+				byte(frame.Bounds().Dy() / 8), byte((frame.Bounds().Dy() / 8) >> 8),
+				0x01,
+			}
+			if !bytes.HasPrefix(payload, header) {
+				return nil, fmt.Errorf("%s refresh has invalid bit-image header: got % x, want % x", driver, payload[:min(len(payload), len(header))], header)
+			}
+			extra = len(header)
 		case "gu3000":
 			extra = 8
 		case "st7735", "st7789":
@@ -209,6 +220,10 @@ func (c *recordingConn) VerifyContrast(driver string, from int, level uint8, pin
 	case "gu3000":
 		want = []byte{0x02, 0x44, 0xff, 0x58, level}
 		kind = "data"
+	case "gu256x64d7000":
+		brightness := byte((uint16(level)*7)/255 + 1)
+		want = []byte{0x1f, 0x58, brightness}
+		kind = "data"
 	case "gp1278", "gp1287":
 		v := uint16(level) * 4
 		want = []byte{reverseBits(0xa0), reverseBits(byte(v >> 8)), reverseBits(byte(v))}
@@ -331,6 +346,8 @@ func atBrightness(src image.Image, driver string, level uint8) image.Image {
 	switch strings.ToLower(driver) {
 	case "gp1278", "gp1287", "gp1294":
 		scale = uint8(uint16(level) * 4 * 255 / 1023)
+	case "gu256x64d7000":
+		scale = uint8(((uint16(level) * 7 / 255) + 1) * 255 / 8)
 	case "st7789", "virtual":
 		// The ST7789 driver currently has no contrast/backlight implementation.
 		if driver == "st7789" {

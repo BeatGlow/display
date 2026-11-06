@@ -9,8 +9,12 @@ import (
 	"periph.io/x/conn/v3/gpio/gpioreg"
 	"periph.io/x/conn/v3/physic"
 	"periph.io/x/conn/v3/pin"
+	"periph.io/x/conn/v3/uart"
+	"periph.io/x/conn/v3/uart/uartreg"
 
 	"github.com/BeatGlow/display/conn"
+	"periph.io/x/host/v3"
+	_ "periph.io/x/host/v3/serial"
 )
 
 type InvalidPin struct {
@@ -62,6 +66,92 @@ type SPI interface {
 
 type Parallel interface {
 	Conn
+}
+
+// UARTConfig describes a UART connection.
+type UARTConfig struct {
+	// Port is the UART port name or alias. An empty name selects the first
+	// available port.
+	Port string
+	// Baud is the configured baud rate. It must match the display's serial
+	// interface setting and cannot exceed 115200.
+	Baud int
+	// Busy is an optional SBUSY input. The display drives it high while busy;
+	// connect it through a suitable level shifter.
+	Busy gpio.PinIn
+}
+
+// OpenUART opens a UART connection using 8 data bits, no parity, one stop
+// bit, and no flow control.
+func OpenUART(config *UARTConfig) (Conn, error) {
+	if config == nil {
+		return nil, errors.New("display: UART config can't be nil")
+	}
+	if config.Baud <= 0 || config.Baud > 115200 {
+		return nil, fmt.Errorf("display: invalid UART baud rate %d", config.Baud)
+	}
+	if _, err := host.Init(); err != nil {
+		return nil, err
+	}
+	port, err := uartreg.Open(config.Port)
+	if err != nil {
+		return nil, err
+	}
+	c, err := port.Connect(physic.Frequency(config.Baud)*physic.Hertz, uart.One, uart.NoParity, uart.NoFlow, 8)
+	if err != nil {
+		_ = port.Close()
+		return nil, err
+	}
+	return &uartConn{port: port, conn: c, busy: config.Busy}, nil
+}
+
+type uartConn struct {
+	port uart.PortCloser
+	conn interface {
+		Tx(w, r []byte) error
+	}
+	busy gpio.PinIn
+}
+
+func (c *uartConn) String() string {
+	return fmt.Sprintf("UART %v", c.port)
+}
+
+func (c *uartConn) Close() error {
+	return c.port.Close()
+}
+
+func (c *uartConn) Reset(gpio.Level) error {
+	return nil
+}
+
+func (c *uartConn) Command(command byte, args ...byte) error {
+	return c.Data(append([]byte{command}, args...)...)
+}
+
+func (c *uartConn) Data(data ...byte) error {
+	if isValidPin(c.busy) {
+		for _, b := range data {
+			c.waitReady()
+			if err := c.conn.Tx([]byte{b}, nil); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return c.conn.Tx(data, nil)
+}
+
+func (c *uartConn) waitReady() {
+	if isValidPin(c.busy) {
+		for c.busy.Read() {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+}
+
+func (c *uartConn) Interface() any {
+	return c.conn
 }
 
 // I2CConfig describes the I²C bus configuration.
@@ -528,4 +618,5 @@ var (
 	_ Conn = (*i2cConn)(nil)
 	_ Conn = (*spiConn)(nil)
 	_ Conn = (*parallelConn)(nil)
+	_ Conn = (*uartConn)(nil)
 )
