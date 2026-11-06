@@ -194,10 +194,9 @@ func main() {
 	}
 
 	var (
-		m         = output.ColorModel()
-		bits      int
-		isGraphic bool
-		drawOp    = draw.Over
+		m      = output.ColorModel()
+		bits   int
+		drawOp = draw.Over
 	)
 	switch m {
 	case pixel.MonoModel:
@@ -206,20 +205,16 @@ func main() {
 	case pixel.Gray2Model:
 		bits = 2
 		fmt.Println("using color model: 2-bit gray")
-		isGraphic = true
 		drawOp = draw.Src
 	case pixel.Gray4Model:
 		bits = 4
 		fmt.Println("using color model: 4-bit gray")
-		isGraphic = true
 	case pixel.CRGB15Model:
 		bits = 15
 		fmt.Println("using color model: 15-bit RGB")
-		isGraphic = true
 	case pixel.CRGB16Model:
 		bits = 16
 		fmt.Println("using color model: 16-bit RGB")
-		isGraphic = true
 	default:
 		fmt.Println("using color model: something else")
 	}
@@ -229,13 +224,11 @@ func main() {
 		logo    image.Image
 		logoPos image.Rectangle
 	)
-	if isGraphic {
-		logo = logoImage(size.Max)
-		logoSize := logo.Bounds().Size()
-		logoPos.Min = image.Pt(size.Dx()/2-logoSize.X/2, size.Dy()/2-logoSize.Y/2)
-		logoPos.Max = logoPos.Min.Add(logoSize)
-		fmt.Printf("yay! your %s display can show %d-bit images, plotting %s logo at %s\n", output.Bounds().Size(), bits, logoSize, logoPos)
-	}
+	logo = logoImage(size.Size(), m == pixel.MonoModel)
+	logoSize := logo.Bounds().Size()
+	logoPos.Min = image.Pt(size.Dx()/2-logoSize.X/2, size.Dy()/2-logoSize.Y/2)
+	logoPos.Max = logoPos.Min.Add(logoSize)
+	fmt.Printf("plotting BeatGlow logo on %s %d-bit display at %s\n", size.Size(), bits, logoPos)
 
 	if offline {
 		fmt.Println("rendering one offline frame...")
@@ -268,12 +261,7 @@ func main() {
 			}
 		}
 
-		if isGraphic {
-			draw.Draw(output, logoPos, logo, image.Point{}, drawOp)
-		} else {
-			box := image.Rect(5, 5, 125, 15)
-			draw.RoundedBox(output, box, 5, pixel.On)
-		}
+		draw.Draw(output, logoPos, logo, image.Point{}, drawOp)
 
 		/*
 			if err = output.SetContrast(uint8(offset)); err != nil {
