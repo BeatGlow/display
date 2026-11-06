@@ -126,6 +126,8 @@ func main() {
 	fmt.Printf("using connection: %s\n", conn)
 
 	switch driver := strings.ToLower(flag.Arg(1)); driver {
+	case "gp1247ai":
+		output, err = display.GP1247AI(conn, config)
 	case "gp1294":
 		output, err = display.GP1294(conn, config)
 	case "sh1106":
@@ -161,6 +163,11 @@ func main() {
 	}
 	if err != nil {
 		fatal(err)
+	}
+	if recorder, ok := conn.(*recordingConn); ok {
+		if err := recorder.VerifyInitialization(strings.ToLower(flag.Arg(1))); err != nil {
+			fatal(err)
+		}
 	}
 	contrastEventsStart := 0
 	if recorder, ok := conn.(*recordingConn); ok {

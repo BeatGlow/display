@@ -8,14 +8,16 @@ import (
 )
 
 const (
-	gp1278DefaultWidth  = 256
-	gp1278DefaultHeight = 50
+	gp1278DefaultWidth   = 256
+	gp1278DefaultHeight  = 50
+	gp1278DefaultDimming = 299
 )
 
 const (
 	gp1278ClearGRAM             = 0x55
 	gp127Standby                = 0x61
-	gp127WakeUp                 = 0x62
+	gp127WakeUp                 = 0x6D
+	gp1278T1OutputSetting       = 0x08
 	gp1278SetDisplayMode        = 0x80
 	gp1278SetDimming            = 0xA0
 	gp1278SoftwareReset         = 0xAA
@@ -24,6 +26,7 @@ const (
 	gp1278SetVFDMode            = 0xCC
 	gp1278SetDisplayArea        = 0xE0
 	gp1278WriteGRAM             = 0xF0
+	gp1278Oscillation           = 0x78
 	gp1278NormalDisplay         = 0x00
 	gp1278InvertDisplay         = 0x01
 )
@@ -104,19 +107,22 @@ func (d *gp1278) init(config *Config) (err error) {
 	}
 
 	// init display
+	if err = d.command(gp1278SoftwareReset); err != nil {
+		return
+	}
+	time.Sleep(10 * time.Millisecond) // The module requires 10 ms after software reset.
+
 	if err = d.commands([][]byte{
-		{gp1278SoftwareReset},
+		{gp1278Oscillation, 0x08},
 		{gp1278SetVFDMode, 0x02, 0x00},
-		{gp1278SetDisplayArea, 0xFF, 0x31, 0x00, 0x20, 0x00, 0x00, 0x80},
+		{gp1278SetDisplayArea, 0xFF, 0x31, 0x00, 0x20, 0x20, 0x00, 0x80},
 		{gp1278SetInternalSpeed, 0x20, 0x3F, 0x00, 0x01},
 	}...); err != nil {
 		return
 	}
 
-	time.Sleep(10 * time.Millisecond)
-
 	if err = d.commands([][]byte{
-		{gp1278SetDimming, 0x01, 0xFF}, // [0x000...0x3ff]
+		{gp1278SetDimming, byte(gp1278DefaultDimming >> 8), byte(gp1278DefaultDimming & 0xff)}, // Datasheet recommends less than 300 to limit aging.
 		{gp1278ClearGRAM},
 	}...); err != nil {
 		return
@@ -126,11 +132,15 @@ func (d *gp1278) init(config *Config) (err error) {
 
 	if err = d.commands([][]byte{
 		{gp1278DisplayPositionOffset, 0x00, 0x00},
+		{gp1278T1OutputSetting, 0x00},
 		{gp1278SetDisplayMode, gp1278NormalDisplay},
 	}...); err != nil {
 		return
 	}
 
+	if err = d.Show(true); err != nil {
+		return err
+	}
 	return d.Refresh()
 }
 
