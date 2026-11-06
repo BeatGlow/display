@@ -1,0 +1,99 @@
+name: offline display
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  offline-display:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Select driver checks from changed paths
+        id: select
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+
+          all_drivers=0
+          drivers=()
+          if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
+            all_drivers=1
+          else
+            while IFS= read -r path; do
+              case "$path" in
+                gu3000.go) drivers+=(gu3000) ;;
+                gp1287.go) drivers+=(gp1278) ;;
+                gp1294.go) drivers+=(gp1294) ;;
+                sh1106.go) drivers+=(sh1106) ;;
+                ssd1305.go) drivers+=(ssd1305) ;;
+                ssd1306.go) drivers+=(ssd1306) ;;
+                ssd1322.go) drivers+=(ssd1322) ;;
+                sh1122.go) drivers+=(sh1122) ;;
+                st7735.go) drivers+=(st7735) ;;
+                st7789.go) drivers+=(st7789) ;;
+                *) all_drivers=1 ;;
+              esac
+            done < <(git diff --name-only "$base" "$GITHUB_SHA")
+          fi
+
+          if [[ "$all_drivers" == "1" || ${#drivers[@]} == 0 ]]; then
+            drivers=(gu3000 gp1278 gp1294 sh1106 ssd1305 ssd1306 ssd1322 sh1122 st7735 st7789)
+          fi
+
+          printf 'drivers=%s\n' "${drivers[*]}" >> "$GITHUB_OUTPUT"
+          printf 'Selected offline drivers: %s\n' "${drivers[*]}"
+
+      - name: Run virtual framebuffer color checks
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/display-artifacts"
+          for model in mono gray2 gray4 rgb15 rgb16; do
+            go run ./cmd/display-test \
+              -width 37 -height 19 -color "$model" \
+              -output "$RUNNER_TEMP/display-artifacts/virtual-$model.png" \
+              -trace "$RUNNER_TEMP/display-artifacts/virtual-$model.json" \
+              offline virtual
+          done
+
+      - name: Run selected driver emulations
+        if: always()
+        env:
+          DRIVERS: ${{ steps.select.outputs.drivers }}
+        shell: bash
+        run: |
+          failed=0
+          for driver in $DRIVERS; do
+            if ! go run ./cmd/display-test \
+              -contrast 128 \
+              -output "$RUNNER_TEMP/display-artifacts/$driver.png" \
+              -trace "$RUNNER_TEMP/display-artifacts/$driver.json" \
+              offline "$driver"; then
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: offline-display-previews
+          path: ${{ runner.temp }}/display-artifacts/
+          if-no-files-found: error
