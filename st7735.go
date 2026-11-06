@@ -118,7 +118,7 @@ func (d *st7735) String() string {
 
 // command shadows display.command
 func (d *st7735) command(cmnd byte, data ...byte) (err error) {
-	if err = d.command(cmnd); err != nil {
+	if err = d.c.Command(cmnd); err != nil {
 		return
 	}
 	for _, data := range data {
