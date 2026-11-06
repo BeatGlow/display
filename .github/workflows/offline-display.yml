@@ -71,60 +71,33 @@ jobs:
 
   offline-virtual:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        color: [mono, gray2, gray4, rgb15, rgb16]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
-      - name: Run virtual framebuffer color checks
+      - name: Run virtual framebuffer color check
+        env:
+          COLOR: ${{ matrix.color }}
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/display-artifacts"
-          for model in mono gray2 gray4 rgb15 rgb16; do
-            go run ./cmd/display-test \
-              -width 37 -height 19 -color "$model" \
-              -output "$RUNNER_TEMP/display-artifacts/virtual-$model.png" \
-              -trace "$RUNNER_TEMP/display-artifacts/virtual-$model.json" \
-              offline virtual
-          done
+          go run ./cmd/display-test \
+            -width 37 -height 19 -color "$COLOR" \
+            -output "$RUNNER_TEMP/display-artifacts/virtual-$COLOR.png" \
+            -trace "$RUNNER_TEMP/display-artifacts/virtual-$COLOR.json" \
+            offline virtual
 
-      - name: Create browser-viewable color preview gallery
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from base64 import b64encode
-          from html import escape
-          from pathlib import Path
-
-          directory = Path("${{ runner.temp }}/display-artifacts")
-          images = sorted(directory.glob("virtual-*.png"))
-          if len(images) != 5:
-              raise SystemExit(f"expected 5 preview PNGs, found {len(images)}")
-
-          cards = []
-          for image in images:
-              encoded = b64encode(image.read_bytes()).decode("ascii")
-              cards.append(
-                  f'<section><h2>{escape(image.stem.removeprefix("virtual-"))}</h2>'
-                  f'<img src="data:image/png;base64,{encoded}" alt="{escape(image.stem)}"></section>'
-              )
-
-          page = """<!doctype html>
-          <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-          <title>Offline virtual display previews</title>
-          <style>body{font:16px system-ui;margin:2rem;background:#181818;color:#eee}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:1rem}section{padding:1rem;background:#282828;border-radius:.5rem}img{display:block;width:100%;max-width:760px;height:auto;image-rendering:pixelated;background:#000}</style>
-          <h1>Offline virtual display previews</h1><main>
-          """ + "\n".join(cards) + "\n</main></html>"
-          (directory / "virtual-gallery.html").write_text(page, encoding="utf-8")
-          PY
-
-      - name: Upload browser-viewable color preview gallery
-        id: preview
+      - name: Upload virtual framebuffer preview
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          path: ${{ runner.temp }}/display-artifacts/virtual-gallery.html
+          path: ${{ runner.temp }}/display-artifacts/virtual-${{ matrix.color }}.png
           archive: false
           if-no-files-found: error
 
@@ -132,16 +105,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: offline-display-virtual-traces
-          path: ${{ runner.temp }}/display-artifacts/virtual-*.json
+          name: offline-display-virtual-${{ matrix.color }}-trace
+          path: ${{ runner.temp }}/display-artifacts/virtual-${{ matrix.color }}.json
           if-no-files-found: error
-
-      - name: Link preview gallery in job summary
-        if: always() && steps.preview.outputs.artifact-url != ''
-        env:
-          PREVIEW_URL: ${{ steps.preview.outputs.artifact-url }}
-        run: |
-          printf '### Virtual display previews\n\n[Open the preview gallery in your browser](%s)\n' "$PREVIEW_URL" >> "$GITHUB_STEP_SUMMARY"
 
   offline-driver:
     needs: select-drivers
@@ -191,3 +157,70 @@ jobs:
           PREVIEW_URL: ${{ steps.preview.outputs.artifact-url }}
         run: |
           printf '### %s preview\n\n[Open PNG preview in your browser](%s)\n' "$DRIVER" "$PREVIEW_URL" >> "$GITHUB_STEP_SUMMARY"
+
+  offline-gallery:
+    needs: [select-drivers, offline-virtual, offline-driver]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all tested screen previews
+        uses: actions/download-artifact@v8
+        with:
+          pattern: '*.png'
+          path: ${{ runner.temp }}/display-previews
+          merge-multiple: true
+
+      - name: Create browser-viewable gallery
+        env:
+          EXPECTED_DRIVERS: ${{ needs.select-drivers.outputs.drivers }}
+          PREVIEW_DIR: ${{ runner.temp }}/display-previews
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from base64 import b64encode
+          from html import escape
+          import json
+          import os
+          from pathlib import Path
+
+          directory = Path(os.environ["PREVIEW_DIR"])
+          images = {image.name: image for image in directory.glob("*.png")}
+          expected = [
+              "virtual-mono.png", "virtual-gray2.png", "virtual-gray4.png",
+              "virtual-rgb15.png", "virtual-rgb16.png",
+          ] + [f"{driver}.png" for driver in json.loads(os.environ["EXPECTED_DRIVERS"])]
+
+          cards = []
+          for name in expected:
+              image = images.get(name)
+              if image is None:
+                  content = '<p class="missing">Preview unavailable; the test did not produce an image.</p>'
+              else:
+                  encoded = b64encode(image.read_bytes()).decode("ascii")
+                  content = f'<img src="data:image/png;base64,{encoded}" alt="{escape(image.stem)}">'
+              cards.append(f'<section><h2>{escape(Path(name).stem)}</h2>{content}</section>')
+
+          page = """<!doctype html>
+          <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+          <title>Offline display previews</title>
+          <style>body{font:16px system-ui;margin:2rem;background:#181818;color:#eee}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:1rem}section{padding:1rem;background:#282828;border-radius:.5rem}img{display:block;width:100%;max-width:760px;height:auto;image-rendering:pixelated;background:#000}.missing{padding:1rem;background:#481f1f}</style>
+          <h1>Offline display previews</h1><main>
+          """ + "\n".join(cards) + "\n</main></html>"
+          (directory / "display-gallery.html").write_text(page, encoding="utf-8")
+          PY
+
+      - name: Upload browser-viewable gallery
+        id: gallery
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ runner.temp }}/display-previews/display-gallery.html
+          archive: false
+          if-no-files-found: error
+
+      - name: Link gallery in job summary
+        if: always() && steps.gallery.outputs.artifact-url != ''
+        env:
+          GALLERY_URL: ${{ steps.gallery.outputs.artifact-url }}
+        run: |
+          printf '### Tested display gallery\n\n[Open all tested screen previews](%s)\n' "$GALLERY_URL" >> "$GITHUB_STEP_SUMMARY"
