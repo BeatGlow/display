@@ -113,7 +113,7 @@ jobs:
           page = """<!doctype html>
           <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
           <title>Offline virtual display previews</title>
-          <style>body{font:16px system-ui;margin:2rem;background:#181818;color:#eee}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem}section{padding:1rem;background:#282828;border-radius:.5rem}img{display:block;max-width:100%;height:auto;image-rendering:pixelated;background:#000}</style>
+          <style>body{font:16px system-ui;margin:2rem;background:#181818;color:#eee}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:1rem}section{padding:1rem;background:#282828;border-radius:.5rem}img{display:block;width:100%;max-width:760px;height:auto;image-rendering:pixelated;background:#000}</style>
           <h1>Offline virtual display previews</h1><main>
           """ + "\n".join(cards) + "\n</main></html>"
           (directory / "virtual-gallery.html").write_text(page, encoding="utf-8")
