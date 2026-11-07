@@ -47,8 +47,8 @@ jobs:
             kms_device=
             for device in /dev/dri/card*; do
               [ -e "$device" ] || continue
-              driver=$(udevadm info --query=property --path="/sys/class/drm/${device##*/}" | sed -n 's/^DRIVER=//p')
-              if [ "$driver" = vkms ]; then
+              sysfs_path=$(readlink -f "/sys/class/drm/${device##*/}")
+              if echo "$sysfs_path" | grep -q '/platform/vkms/drm/'; then
                 kms_device=$device
                 break
               fi
@@ -77,13 +77,25 @@ jobs:
           release: '24.04'
           prepare: |
             apt-get update
-            apt-get install -y curl linux-modules-extra-$(uname -r)
+            apt-get install -y build-essential curl linux-headers-$(uname -r) linux-modules-extra-$(uname -r) linux-source
             curl -fsSLO https://go.dev/dl/go1.23.4.linux-amd64.tar.gz
             tar -C /usr/local -xzf go1.23.4.linux-amd64.tar.gz
           run: |
             export PATH=/usr/local/go/bin:$PATH
             export CGO_ENABLED=0
-            modprobe vfb vfb_enable=1 mode_option=640x480-16@60
+            kernel_release=$(uname -r)
+            source_archive=$(find /usr/src -maxdepth 1 -name 'linux-source-*.tar.bz2' -print -quit)
+            if [ -z "$source_archive" ]; then
+              echo 'Failed to find the Linux kernel source archive.'
+              exit 1
+            fi
+            mkdir -p /tmp/linux-source
+            tar -xjf "$source_archive" -C /tmp/linux-source --strip-components=1
+            make -C "/lib/modules/$kernel_release/build" \
+              M=/tmp/linux-source/drivers/video/fbdev \
+              CONFIG_FB_VIRTUAL=m modules
+            insmod /tmp/linux-source/drivers/video/fbdev/vfb.ko \
+              vfb_enable=1 mode_option=640x480-16@60
             udevadm settle
             fbdev_device=
             for device in /dev/fb*; do
