@@ -104,7 +104,7 @@ func TestCopyToXRGBRejectsInvalidDestination(t *testing.T) {
 	}
 }
 
-func TestCopyRGBAARM64VectorAndScalarTail(t *testing.T) {
+func TestCopyRGBAVectorAndScalarTail(t *testing.T) {
 	const width, height, stride = 37, 3, 37*4 + 12
 	src := image.NewRGBA(image.Rect(0, 0, width, height))
 	for i := range src.Pix {
