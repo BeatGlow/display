@@ -58,7 +58,11 @@ func logDRMVersion(t *testing.T, path string) {
 		t.Logf("DRM version ioctl for %q failed: %v", path, err)
 		return
 	}
-	defer device.Close()
+	defer func() {
+		if err := device.Close(); err != nil {
+			t.Errorf("close DRM version device %q: %v", path, err)
+		}
+	}()
 
 	var version drmVersion
 	command := ioctl.Pointer(ioctl.Read|ioctl.Write, &version, 0x6400)
