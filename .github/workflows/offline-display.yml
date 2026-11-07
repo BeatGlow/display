@@ -233,10 +233,10 @@ jobs:
 
       - name: Create preview publisher token
         id: preview-app-token
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.PREVIEW_APP_CLIENT_ID != ''
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/create-github-app-token@v3.2.0
         with:
-          client-id: ${{ vars.PREVIEW_APP_CLIENT_ID }}
+          client-id: ${{ secrets.PREVIEW_APP_CLIENT_ID }}
           private-key: ${{ secrets.PREVIEW_APP_PRIVATE_KEY }}
           repositories: display
           permission-contents: write
