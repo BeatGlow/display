@@ -259,6 +259,12 @@ func checkDisplayAPI(screen display.Display) error {
 	if got := color.RGBAModel.Convert(screen.At(probe.X, probe.Y)).(color.RGBA); got != (color.RGBA{A: 255}) {
 		return fmt.Errorf("Clear/At mismatch: got %#v", got)
 	}
+	setColor := color.RGBA{R: 211, G: 47, B: 109, A: 255}
+	screen.Set(probe.X, probe.Y, setColor)
+	if got := color.RGBAModel.Convert(screen.At(probe.X, probe.Y)).(color.RGBA); got != setColor {
+		return fmt.Errorf("Set/At mismatch: got %#v, want %#v", got, setColor)
+	}
+	screen.Clear()
 	return nil
 }
 
