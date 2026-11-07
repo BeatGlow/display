@@ -4,8 +4,7 @@ import (
 	"encoding/binary"
 	"image"
 	"image/color"
-
-	"github.com/BeatGlow/display/draw"
+	"image/draw"
 )
 
 type Image interface {
@@ -17,6 +16,33 @@ type Image interface {
 	// Fill the image with a single color.
 	Fill(color.Color)
 }
+
+// PixelFormat identifies an image's in-memory pixel encoding.
+type PixelFormat uint8
+
+const (
+	FormatMonoLSB PixelFormat = iota + 1
+	FormatMonoVerticalLSB
+	FormatGray2
+	FormatGray4
+	FormatCBGR15
+	FormatCBGR16
+	FormatCRGB15
+	FormatCRGB16
+)
+
+// PixelView exposes storage for optional, format-aware drawing fast paths.
+// Pix is borrowed and must not be retained by callers.
+type PixelView struct {
+	Pix    []byte
+	Stride int
+	Bounds image.Rectangle
+	Format PixelFormat
+	Order  binary.ByteOrder
+}
+
+// FastImage is an optional capability implemented by package pixel images.
+type FastImage interface{ PixelView() PixelView }
 
 // Buffer holds the pixel values and is a container that is used by most image formats in this package.
 type Buffer struct {
@@ -35,9 +61,32 @@ func (p *Buffer) Bounds() image.Rectangle {
 }
 
 func (p *Buffer) Clear() {
-	for i := range p.Pix {
-		p.Pix[i] = 0x00
-	}
+	clear(p.Pix)
+}
+
+func (p *MonoImage) PixelView() PixelView {
+	return PixelView{Pix: p.Pix, Stride: p.Stride, Bounds: p.Rect, Format: FormatMonoLSB}
+}
+func (p *MonoVerticalLSBImage) PixelView() PixelView {
+	return PixelView{Pix: p.Pix, Stride: p.Stride, Bounds: p.Rect, Format: FormatMonoVerticalLSB}
+}
+func (p *Gray2Image) PixelView() PixelView {
+	return PixelView{Pix: p.Pix, Stride: p.Stride, Bounds: p.Rect, Format: FormatGray2}
+}
+func (p *Gray4Image) PixelView() PixelView {
+	return PixelView{Pix: p.Pix, Stride: p.Stride, Bounds: p.Rect, Format: FormatGray4}
+}
+func (p *CBGR15Image) PixelView() PixelView {
+	return PixelView{Pix: p.Pix, Stride: p.Stride, Bounds: p.Rect, Format: FormatCBGR15, Order: p.Order}
+}
+func (p *CBGR16Image) PixelView() PixelView {
+	return PixelView{Pix: p.Pix, Stride: p.Stride, Bounds: p.Rect, Format: FormatCBGR16, Order: p.Order}
+}
+func (p *CRGB15Image) PixelView() PixelView {
+	return PixelView{Pix: p.Pix, Stride: p.Stride, Bounds: p.Rect, Format: FormatCRGB15, Order: p.Order}
+}
+func (p *CRGB16Image) PixelView() PixelView {
+	return PixelView{Pix: p.Pix, Stride: p.Stride, Bounds: p.Rect, Format: FormatCRGB16, Order: p.Order}
 }
 
 func makeBuffer(w, h, stride, size int) Buffer {
@@ -102,9 +151,7 @@ func (p *MonoImage) Fill(c color.Color) {
 	if monoModel(c).(Mono).On {
 		value = 0xff
 	}
-	for i := range p.Pix {
-		p.Pix[i] = value
-	}
+	fillRepeatedByte(p.Pix, value)
 }
 
 // MonoVerticalLSBImage is a 1-bit per pixel monochrome image.
@@ -160,9 +207,7 @@ func (p *MonoVerticalLSBImage) Fill(c color.Color) {
 	if monoModel(c).(Mono).On {
 		value = 0xff
 	}
-	for i := range p.Pix {
-		p.Pix[i] = value
-	}
+	fillRepeatedByte(p.Pix, value)
 }
 
 // Gray2Image is a 2-bits per pixel gray scale image.
@@ -205,9 +250,7 @@ func (p *Gray2Image) Fill(c color.Color) {
 	value := gray2Model(c).(Gray2).Y & 0x3
 	value |= value << 2
 	value |= value << 4
-	for i := range p.Pix {
-		p.Pix[i] = value
-	}
+	fillRepeatedByte(p.Pix, value)
 }
 
 // Gray4Image is a 4-bits per pixel gray scale image.
@@ -255,9 +298,7 @@ func (p *Gray4Image) Set(x, y int, c color.Color) {
 func (p *Gray4Image) Fill(c color.Color) {
 	value := gray4Model(c).(Gray4).Y & 0xf
 	value |= value << 4
-	for i := range p.Pix {
-		p.Pix[i] = value
-	}
+	fillRepeatedByte(p.Pix, value)
 }
 
 // CBGR15Image is a 15-bits per pixel 5-5-5-bit BGR image.
@@ -297,11 +338,9 @@ func (p *CBGR15Image) Set(x, y int, c color.Color) {
 
 func (p *CBGR15Image) Fill(c color.Color) {
 	value := cbgr15Model(c).(CBGR15).V
-	bytes := make([]byte, 2)
-	p.Order.PutUint16(bytes, value)
-	for i, l := 0, len(p.Pix); i < l; i += 2 {
-		copy(p.Pix[i:], bytes)
-	}
+	var bytes [2]byte
+	p.Order.PutUint16(bytes[:], value)
+	fillRepeatedWord(p.Pix, bytes[0], bytes[1])
 }
 
 // CBGR16Image is a 16-bits per pixel 5-6-5-bit BGR image.
@@ -341,11 +380,9 @@ func (p *CBGR16Image) Set(x, y int, c color.Color) {
 
 func (p *CBGR16Image) Fill(c color.Color) {
 	value := cbgr16Model(c).(CBGR16).V
-	bytes := make([]byte, 2)
-	p.Order.PutUint16(bytes, value)
-	for i, l := 0, len(p.Pix); i < l; i += 2 {
-		copy(p.Pix[i:], bytes)
-	}
+	var bytes [2]byte
+	p.Order.PutUint16(bytes[:], value)
+	fillRepeatedWord(p.Pix, bytes[0], bytes[1])
 }
 
 // CRGB15Image is a 15-bits per pixel 5-5-5-bit RGB image.
@@ -385,11 +422,9 @@ func (p *CRGB15Image) Set(x, y int, c color.Color) {
 
 func (p *CRGB15Image) Fill(c color.Color) {
 	value := crgb15Model(c).(CRGB15).V
-	bytes := make([]byte, 2)
-	p.Order.PutUint16(bytes, value)
-	for i, l := 0, len(p.Pix); i < l; i += 2 {
-		copy(p.Pix[i:], bytes)
-	}
+	var bytes [2]byte
+	p.Order.PutUint16(bytes[:], value)
+	fillRepeatedWord(p.Pix, bytes[0], bytes[1])
 }
 
 // CRGB16Image is a 16-bits per pixel 5-6-5-bit RGB image.
@@ -429,11 +464,9 @@ func (p *CRGB16Image) Set(x, y int, c color.Color) {
 
 func (p *CRGB16Image) Fill(c color.Color) {
 	value := crgb16Model(c).(CRGB16).V
-	bytes := make([]byte, 2)
-	p.Order.PutUint16(bytes, value)
-	for i, l := 0, len(p.Pix); i < l; i += 2 {
-		copy(p.Pix[i:], bytes)
-	}
+	var bytes [2]byte
+	p.Order.PutUint16(bytes[:], value)
+	fillRepeatedWord(p.Pix, bytes[0], bytes[1])
 }
 
 // Interface checks.

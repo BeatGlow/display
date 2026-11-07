@@ -12,6 +12,7 @@
 - Build compact interfaces with the widget, font, and menu packages.
 - Select a Linux DRM/KMS or fbdev display through `framebuffer`, or open a backend directly from its subpackage.
 - Drive Linux and FreeBSD 15.1 amd64 displays through DRM/KMS, with connector and mode selection plus vblank-synchronized page flips.
+- Optimized same-format 16-bit image blits and pixel-buffer fills.
 
 ## Display controllers
 
