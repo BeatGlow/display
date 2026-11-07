@@ -231,6 +231,67 @@ jobs:
         run: |
           printf '### Tested display gallery\n\n[Open all tested screen previews](%s)\n' "$GALLERY_URL" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Create preview publisher token
+        id: preview-app-token
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.PREVIEW_APP_CLIENT_ID != ''
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.PREVIEW_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PREVIEW_APP_PRIVATE_KEY }}
+          repositories: display
+          permission-contents: write
+
+      - name: Publish images for inline PR previews
+        id: publish-previews
+        if: steps.preview-app-token.outputs.token != ''
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ steps.preview-app-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PREVIEW_DIR: ${{ runner.temp }}/display-previews
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! compgen -G "$PREVIEW_DIR/*.png" > /dev/null; then
+            echo 'No PNG previews to publish.'
+            exit 0
+          fi
+
+          repository="$RUNNER_TEMP/display-preview-store"
+          mkdir -p "$repository"
+          cd "$repository"
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://github.com/$GH_REPO.git"
+          gh auth setup-git --hostname github.com
+
+          for attempt in 1 2 3; do
+            if git ls-remote --exit-code --heads origin display-previews > /dev/null; then
+              git fetch origin display-previews
+              git checkout -B display-previews FETCH_HEAD
+            else
+              git checkout --orphan display-previews
+            fi
+
+            mkdir -p "pr-$PR_NUMBER"
+            rm -f "pr-$PR_NUMBER"/*.png
+            find "$PREVIEW_DIR" -maxdepth 1 -type f -name '*.png' -exec cp {} "pr-$PR_NUMBER/" \;
+            git add -A "pr-$PR_NUMBER"
+            if ! git diff --cached --quiet; then
+              git commit -m "Update display previews for PR #$PR_NUMBER (run $RUN_ID)"
+            fi
+
+            if git push origin HEAD:refs/heads/display-previews; then
+              echo "preview-base=https://raw.githubusercontent.com/$GH_REPO/display-previews/pr-$PR_NUMBER" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Preview branch push failed on attempt $attempt; retrying."
+          done
+          echo 'Could not publish previews after three attempts.' >&2
+          exit 1
+
       - name: Remove previous preview overview comments
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/github-script@v9
@@ -257,11 +318,13 @@ jobs:
         env:
           EXPECTED_DRIVERS: ${{ needs.select-drivers.outputs.drivers }}
           GALLERY_URL: ${{ steps.gallery.outputs.artifact-url }}
+          PREVIEW_BASE: ${{ steps.publish-previews.outputs.preview-base }}
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PREVIEW_DIR: ${{ runner.temp }}/display-previews
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_ID: ${{ github.run_id }}
         shell: bash
         run: |
           comment_file="$RUNNER_TEMP/display-preview-comment.md"
@@ -279,7 +342,11 @@ jobs:
           for screen in "${screens[@]}"; do
             image="$PREVIEW_DIR/$screen.png"
             if [[ -f "$image" ]]; then
-              printf '| %s | [Open preview](%s#%s) |\n' "$screen" "$GALLERY_URL" "$screen" >> "$comment_file"
+              if [[ -n "$PREVIEW_BASE" ]]; then
+                printf '| %s | ![%s preview](%s/%s.png?run=%s) |\n' "$screen" "$screen" "$PREVIEW_BASE" "$screen" "$RUN_ID" >> "$comment_file"
+              else
+                printf '| %s | [Open preview](%s#%s) |\n' "$screen" "$GALLERY_URL" "$screen" >> "$comment_file"
+              fi
             else
               printf '| %s | Preview unavailable; see the offline check result. |\n' "$screen" >> "$comment_file"
             fi
