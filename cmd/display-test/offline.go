@@ -29,6 +29,49 @@ type busEvent struct {
 	Bytes []byte `json:"bytes"`
 }
 
+func (c *recordingConn) VerifyInitialization(driver string) error {
+	var expected [][]byte
+	switch strings.ToLower(driver) {
+	case "gp1247ai":
+		expected = [][]byte{
+			{0xAA}, {0x78, 0x08}, {0xCC, 0x05, 0x00},
+			{0xE0, 0xFC, 0x3E, 0x00, 0x20, 0x80, 0x80, 0x80},
+			{0xB1, 0x20, 0x3F, 0x00, 0x01}, {0xA0, 0x02, 0x00}, {0x55},
+			{0xC0, 0x00, 0x00}, {0x80, 0x80}, {0x6D}, {0x80, 0x80},
+		}
+	case "gp1278", "gp1287":
+		expected = [][]byte{
+			{0xAA}, {0x78, 0x08}, {0xCC, 0x02, 0x00},
+			{0xE0, 0xFF, 0x31, 0x00, 0x20, 0x20, 0x00, 0x80},
+			{0xB1, 0x20, 0x3F, 0x00, 0x01}, {0xA0, 0x01, 0x2B}, {0x55},
+			{0xC0, 0x00, 0x00}, {0x08, 0x00}, {0x80, 0x00}, {0x6D}, {0x80, 0x00},
+		}
+	case "gp1294":
+		expected = [][]byte{
+			{0xAA}, {0x78, 0x08}, {0xCC, 0x01, 0x1F, 0x00, 0xFF, 0x2F, 0x00, 0x20},
+			{0xA0, 0x28, 0x00}, {0xC0, 0x00, 0x00}, {0x08, 0x00}, {0x80, 0x00},
+			{0xF0, 0x00, 0x00, 0x7F}, {0x6D},
+		}
+	default:
+		return nil
+	}
+	for i := range expected {
+		for j := range expected[i] {
+			expected[i][j] = reverseBits(expected[i][j])
+		}
+	}
+	index := 0
+	for _, event := range c.events {
+		if event.Type == "command" && bytes.HasPrefix(event.Bytes, expected[index]) {
+			index++
+			if index == len(expected) {
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("%s initialization is missing expected command % x", driver, expected[index])
+}
+
 func (c *recordingConn) String() string { return "offline recording connection" }
 func (c *recordingConn) Close() error   { return nil }
 func (c *recordingConn) Reset(gpio.Level) error {
@@ -58,6 +101,22 @@ func (c *recordingConn) VerifyFrame(driver string, frame image.Image, from int) 
 	events := c.events[from:]
 	var captured []byte
 	driver = strings.ToLower(driver)
+	if driver == "gp1278" || driver == "gp1247ai" {
+		pages := (frame.Bounds().Dy() + 7) / 8
+		page := 0
+		for _, event := range events {
+			if event.Type != "command" || page == pages {
+				continue
+			}
+			want := []byte{reverseBits(0xF0), 0, reverseBits(byte(page * 8)), reverseBits(0x07)}
+			if bytes.Equal(event.Bytes, want) {
+				page++
+			}
+		}
+		if page != pages {
+			return nil, fmt.Errorf("%s refresh sent %d valid page commands; expected %d", driver, page, pages)
+		}
+	}
 	if driver == "gp1294" {
 		for _, event := range events {
 			if event.Type == "command" {
@@ -139,7 +198,7 @@ func decodeFrame(driver string, frame image.Image, encoded []byte) (*image.RGBA,
 	kind := frame.At(bounds.Min.X, bounds.Min.Y)
 	if _, ok := kind.(pixel.Mono); ok {
 		data := append([]byte(nil), encoded...)
-		if strings.EqualFold(driver, "gp1278") || strings.EqualFold(driver, "gp1287") || strings.EqualFold(driver, "gp1294") {
+		if strings.EqualFold(driver, "gp1278") || strings.EqualFold(driver, "gp1287") || strings.EqualFold(driver, "gp1247ai") || strings.EqualFold(driver, "gp1294") {
 			for i := range data {
 				data[i] = reverseBits(data[i])
 			}
@@ -150,6 +209,8 @@ func decodeFrame(driver string, frame image.Image, encoded []byte) (*image.RGBA,
 				index := (y/8)*w + x
 				if strings.EqualFold(driver, "gp1294") {
 					index = x*pages + y/8
+				} else if strings.EqualFold(driver, "gp1247ai") {
+					index = (y/8)*256 + x
 				}
 				value := uint8(0)
 				if data[index]&(1<<uint(y&7)) != 0 {
@@ -232,6 +293,10 @@ func (c *recordingConn) VerifyContrast(driver string, from int, level uint8, pin
 		v := uint16(level) << 2
 		want = []byte{reverseBits(0xa0), reverseBits(byte(v)), reverseBits(byte(v >> 8))}
 		kind = "command"
+	case "gp1247ai":
+		v := uint16(level) * 4
+		want = []byte{reverseBits(0xa0), reverseBits(byte(v >> 8)), reverseBits(byte(v))}
+		kind = "command"
 	case "ssd1305", "ssd1306", "sh1106", "sh1122":
 		want, kind = []byte{0x81, level}, "command"
 	case "ssd1322":
@@ -264,6 +329,16 @@ func encodeFrame(driver string, frame image.Image) ([]byte, error) {
 			for x := range width {
 				for page := range pages {
 					out = append(out, monoByte(frame, x, page*8))
+				}
+			}
+		} else if strings.EqualFold(driver, "gp1247ai") {
+			for page := range pages {
+				for x := range 256 {
+					if x < width {
+						out = append(out, monoByte(frame, x, page*8))
+					} else {
+						out = append(out, 0)
+					}
 				}
 			}
 		} else {
@@ -312,7 +387,7 @@ func encodeFrame(driver string, frame image.Image) ([]byte, error) {
 	default:
 		return nil, fmt.Errorf("no offline framebuffer encoder for color model %T", frame.ColorModel())
 	}
-	if strings.EqualFold(driver, "gp1278") || strings.EqualFold(driver, "gp1294") {
+	if strings.EqualFold(driver, "gp1278") || strings.EqualFold(driver, "gp1247ai") || strings.EqualFold(driver, "gp1294") {
 		for i := range out {
 			out[i] = reverseBits(out[i])
 		}
@@ -344,7 +419,7 @@ type brightnessPreview struct {
 func atBrightness(src image.Image, driver string, level uint8) image.Image {
 	scale := level
 	switch strings.ToLower(driver) {
-	case "gp1278", "gp1287", "gp1294":
+	case "gp1278", "gp1287", "gp1247ai", "gp1294":
 		scale = uint8(uint16(level) * 4 * 255 / 1023)
 	case "gu256x64d7000":
 		scale = uint8(((uint16(level) * 7 / 255) + 1) * 255 / 8)

@@ -31,13 +31,13 @@ bytes for CI artifacts. The `virtual` driver remains available for framebuffer
 dimensions and color-model previews without a specific controller protocol.
 
 For a CI matrix, run the offline command once for each driver and give each
-run its own PNG and trace paths. Supported driver names are `gu3000`, `gp1278`,
-`gu256x64d7000`, `gp1294`, `sh1106`, `ssd1305`, `ssd1306`, `ssd1322`,
+run its own PNG and trace paths. Supported driver names are `gu3000`, `gp1247ai`,
+`gp1278`, `gu256x64d7000`, `gp1294`, `sh1106`, `ssd1305`, `ssd1306`, `ssd1322`,
 `sh1122`, `st7735`, and `st7789`.
 
 ```sh
 mkdir -p artifacts
-for driver in gu3000 gu256x64d7000 gp1278 gp1294 sh1106 ssd1305 ssd1306 ssd1322 sh1122 st7735 st7789; do
+for driver in gu3000 gp1247ai gu256x64d7000 gp1278 gp1294 sh1106 ssd1305 ssd1306 ssd1322 sh1122 st7735 st7789; do
   go run ./cmd/display-test -contrast 128 -output "artifacts/$driver.png" -trace "artifacts/$driver.json" offline "$driver"
 done
 ```
@@ -88,3 +88,9 @@ go run ./cmd/display-test -uart-port /dev/ttyUSB0 -uart-baud 38400 uart gu256x64
 
 See [the datasheet](doc/GU256X64D-7000.pdf) for interface, command, and
 electrical details.
+
+The GP1247AI driver supports the 253x63 Futaba VFD through an SPI connection.
+Use `offline gp1247ai` to verify its 8-bit-page framebuffer transfer and
+capture a reconstructed preview. The GP1287BI 256x50 and GP1294AI 256x48
+drivers are also supported; see their panel and carrier specifications in
+`doc/`.
