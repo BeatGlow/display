@@ -10,13 +10,13 @@ on:
 permissions:
   actions: read
   contents: read
-  pull-requests: write
 
 jobs:
   select-drivers:
     runs-on: ubuntu-latest
     outputs:
       drivers: ${{ steps.select.outputs.drivers }}
+      all_drivers: ${{ steps.select.outputs.all_drivers }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -108,6 +108,7 @@ jobs:
             mapfile -t drivers < <(printf '%s\n' "${drivers[@]}" | sort -u)
           fi
           if [[ "$all_drivers" == "1" || ${#drivers[@]} == 0 ]]; then
+            all_drivers=1
             drivers=()
             for settings in cmd/display-test/offline_*.go; do
               [[ "$settings" == "cmd/display-test/offline_test.go" ]] && continue
@@ -122,9 +123,13 @@ jobs:
           done
           drivers_json="${drivers_json%,}]"
           printf 'drivers=%s\n' "$drivers_json" >> "$GITHUB_OUTPUT"
+          printf 'all_drivers=%s\n' "$all_drivers" >> "$GITHUB_OUTPUT"
           printf 'Selected offline drivers: %s\n' "${drivers[*]}"
+          printf 'Run virtual color matrix: %s\n' "$all_drivers"
 
   offline-virtual:
+    needs: select-drivers
+    if: needs.select-drivers.outputs.all_drivers == '1'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -232,6 +237,7 @@ jobs:
       - name: Create browser-viewable gallery
         env:
           EXPECTED_DRIVERS: ${{ needs.select-drivers.outputs.drivers }}
+          ALL_DRIVERS: ${{ needs.select-drivers.outputs.all_drivers }}
           PREVIEW_DIR: ${{ runner.temp }}/display-previews
         shell: bash
         run: |
@@ -244,10 +250,13 @@ jobs:
 
           directory = Path(os.environ["PREVIEW_DIR"])
           images = {image.name: image for image in directory.glob("*.png")}
-          expected = [
-              "virtual-mono.png", "virtual-gray2.png", "virtual-gray4.png",
-              "virtual-rgb15.png", "virtual-rgb16.png",
-          ] + [f"{driver}.png" for driver in json.loads(os.environ["EXPECTED_DRIVERS"])]
+          expected = []
+          if os.environ["ALL_DRIVERS"] == "1":
+              expected.extend([
+                  "virtual-mono.png", "virtual-gray2.png", "virtual-gray4.png",
+                  "virtual-rgb15.png", "virtual-rgb16.png",
+              ])
+          expected.extend(f"{driver}.png" for driver in json.loads(os.environ["EXPECTED_DRIVERS"]))
 
           cards = []
           for name in expected:
@@ -372,6 +381,7 @@ jobs:
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         env:
           EXPECTED_DRIVERS: ${{ needs.select-drivers.outputs.drivers }}
+          ALL_DRIVERS: ${{ needs.select-drivers.outputs.all_drivers }}
           GALLERY_URL: ${{ steps.gallery.outputs.artifact-url }}
           PREVIEW_BASE: ${{ steps.publish-previews.outputs.preview-base }}
           GH_REPO: ${{ github.repository }}
@@ -384,13 +394,18 @@ jobs:
         run: |
           comment_file="$RUNNER_TEMP/display-preview-comment.md"
           mapfile -t drivers < <(jq -r '.[]' <<< "$EXPECTED_DRIVERS")
-          screens=(virtual-mono virtual-gray2 virtual-gray4 virtual-rgb15 virtual-rgb16 "${drivers[@]}")
+          virtual_count=0
+          screens=("${drivers[@]}")
+          if [[ "$ALL_DRIVERS" == "1" ]]; then
+            virtual_count=5
+            screens=(virtual-mono virtual-gray2 virtual-gray4 virtual-rgb15 virtual-rgb16 "${drivers[@]}")
+          fi
 
           {
             printf '<!-- offline-display-preview-gallery -->\n'
             printf '## Offline display preview overview\n\n'
             printf '[Open the full gallery for this run](%s)\n\n' "$GALLERY_URL"
-            printf 'Previews expected in this run: **%d** (5 virtual color modes and %d selected drivers).\n\n' "${#screens[@]}" "${#drivers[@]}"
+            printf 'Previews expected in this run: **%d** (%d virtual color modes and %d selected drivers).\n\n' "${#screens[@]}" "$virtual_count" "${#drivers[@]}"
             printf '| Screen | Preview |\n| --- | --- |\n'
           } > "$comment_file"
 
