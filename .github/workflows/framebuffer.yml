@@ -28,6 +28,8 @@ jobs:
   linux-kms:
     name: framebuffer (Linux VKMS)
     runs-on: ubuntu-latest
+    outputs:
+      demo_artifact_url: ${{ steps.demo-artifact.outputs.artifact-url }}
     steps:
       - uses: actions/checkout@v5
       - name: Test KMS with VKMS
@@ -65,10 +67,26 @@ jobs:
             export DISPLAY_TEST_KMS_DEVICE=$kms_device
             go test -v ./framebuffer/kms/...
             go test -v -run '^TestHardwareKMS$' ./framebuffer
+            go run ./cmd/display-test-framebuffer \
+              -backend kms -kms-device "$kms_device" -duration 1s \
+              -screenshot framebuffer-kms.png > framebuffer-kms.txt 2>&1
+            cat framebuffer-kms.txt
+      - name: Upload KMS demo screenshot and stats
+        id: demo-artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: framebuffer-demo-kms
+          path: |
+            framebuffer-kms.png
+            framebuffer-kms.txt
+          if-no-files-found: ignore
 
   linux-fbdev:
     name: framebuffer (Linux vfb)
     runs-on: ubuntu-latest
+    outputs:
+      demo_artifact_url: ${{ steps.demo-artifact.outputs.artifact-url }}
     steps:
       - uses: actions/checkout@v5
       - name: Test fbdev with vfb
@@ -93,7 +111,7 @@ jobs:
             tar -xjf "$source_archive" -C /tmp/linux-source --strip-components=1
             make -C "/lib/modules/$kernel_release/build" \
               M=/tmp/linux-source/drivers/video/fbdev \
-              CONFIG_FB_VIRTUAL=m modules
+              CONFIG_FB_VIRTUAL=m vfb.ko
             insmod /tmp/linux-source/drivers/video/fbdev/vfb.ko \
               vfb_enable=1 mode_option=640x480-16@60
             udevadm settle
@@ -115,6 +133,20 @@ jobs:
             export DISPLAY_TEST_FBDEV_DEVICE=$fbdev_device
             go test -v ./framebuffer/fbdev/...
             go test -v -run '^TestHardwareFBDev$' ./framebuffer
+            go run ./cmd/display-test-framebuffer \
+              -backend fbdev -fbdev-device "$fbdev_device" -duration 1s \
+              -screenshot framebuffer-fbdev.png > framebuffer-fbdev.txt 2>&1
+            cat framebuffer-fbdev.txt
+      - name: Upload fbdev demo screenshot and stats
+        id: demo-artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: framebuffer-demo-fbdev
+          path: |
+            framebuffer-fbdev.png
+            framebuffer-fbdev.txt
+          if-no-files-found: ignore
 
   freebsd:
     name: framebuffer (FreeBSD 15.1 amd64)
@@ -139,13 +171,96 @@ jobs:
       contents: read
       pull-requests: write
     steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Download KMS demo output
+        if: always() && needs.linux-kms.outputs.demo_artifact_url != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: framebuffer-demo-kms
+          path: ${{ runner.temp }}/framebuffer-results/kms
+      - name: Download fbdev demo output
+        if: always() && needs.linux-fbdev.outputs.demo_artifact_url != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: framebuffer-demo-fbdev
+          path: ${{ runner.temp }}/framebuffer-results/fbdev
+      - name: Create screenshot publisher token
+        id: preview-token
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/create-github-app-token@v3.2.0
+        continue-on-error: true
+        with:
+          client-id: ${{ secrets.PREVIEW_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PREVIEW_APP_PRIVATE_KEY }}
+          repositories: display
+          permission-contents: write
+      - name: Publish screenshots for inline PR previews
+        id: publish-screenshots
+        if: steps.preview-token.outputs.token != ''
+        continue-on-error: true
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ steps.preview-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PREVIEW_DIR: ${{ runner.temp }}/framebuffer-results
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! compgen -G "$PREVIEW_DIR/*/framebuffer-*.png" > /dev/null; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          gh auth setup-git --hostname github.com
+
+          for attempt in 1 2 3; do
+            if git ls-remote --exit-code --heads origin framebuffer-previews > /dev/null; then
+              git fetch origin framebuffer-previews
+              git checkout -B framebuffer-previews FETCH_HEAD
+            else
+              git checkout --orphan framebuffer-previews
+            fi
+
+            preview_path="pr-$PR_NUMBER"
+            mkdir -p "$preview_path"
+            rm -f "$preview_path"/framebuffer-*.png
+            for variant in kms fbdev; do
+              image="$PREVIEW_DIR/$variant/framebuffer-$variant.png"
+              if [[ -f "$image" ]]; then
+                cp "$image" "$preview_path/"
+              fi
+            done
+            git add -A "$preview_path"
+            if ! git diff --cached --quiet; then
+              git commit -m "Update framebuffer previews for PR #$PR_NUMBER (run $RUN_ID)"
+            fi
+
+            if git push origin HEAD:refs/heads/framebuffer-previews; then
+              preview_base="https://raw.githubusercontent.com/$GH_REPO/framebuffer-previews/$preview_path"
+              [[ -f "$preview_path/framebuffer-kms.png" ]] && echo "kms_image_url=$preview_base/framebuffer-kms.png?run=$RUN_ID" >> "$GITHUB_OUTPUT"
+              [[ -f "$preview_path/framebuffer-fbdev.png" ]] && echo "fbdev_image_url=$preview_base/framebuffer-fbdev.png?run=$RUN_ID" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Framebuffer preview branch push failed on attempt $attempt; retrying."
+          done
+          echo 'Could not publish framebuffer screenshots after three attempts.' >&2
+          exit 1
       - name: Comment framebuffer results
+        if: always()
         uses: actions/github-script@v9
         env:
           KMS_RESULT: ${{ needs.linux-kms.result }}
           FBDEV_RESULT: ${{ needs.linux-fbdev.result }}
           FREEBSD_RESULT: ${{ needs.freebsd.result }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          KMS_IMAGE_URL: ${{ steps.publish-screenshots.outputs.kms_image_url }}
+          FBDEV_IMAGE_URL: ${{ steps.publish-screenshots.outputs.fbdev_image_url }}
+          KMS_ARTIFACT_URL: ${{ needs.linux-kms.outputs.demo_artifact_url }}
+          FBDEV_ARTIFACT_URL: ${{ needs.linux-fbdev.outputs.demo_artifact_url }}
+          DEMO_DIR: ${{ runner.temp }}/framebuffer-results
         with:
           script: |
             const { owner, repo } = context.repo;
@@ -177,18 +292,37 @@ jobs:
               cancelled: '⚪ Cancelled',
               skipped: '➖ Skipped',
             };
+            const fs = require('fs');
+            const path = require('path');
+            function demoStats(variant) {
+              const filename = path.join(process.env.DEMO_DIR, variant, `framebuffer-${variant}.txt`);
+              if (!fs.existsSync(filename)) return 'Not available';
+              const log = fs.readFileSync(filename, 'utf8');
+              const match = log.match(/Completed (\d+) frames in ([0-9.]+)s \(([0-9.]+) Hz\); average draw ([0-9.]+) ms, copy ([0-9.]+) ms, refresh ([0-9.]+) ms\./);
+              if (!match) return 'No timing summary';
+              return `${match[1]} frames / ${match[3]} Hz; draw ${match[4]} ms, copy ${match[5]} ms, refresh ${match[6]} ms`;
+            }
+            function screenshot(variant) {
+              const image = process.env[`${variant.toUpperCase()}_IMAGE_URL`];
+              if (image) return `![${variant} framebuffer screenshot](${image})`;
+              const artifact = process.env[`${variant.toUpperCase()}_ARTIFACT_URL`];
+              return artifact ? `[Download screenshot](${artifact})` : '—';
+            }
             const rows = variants.map(([variant, result, job]) => {
               const status = labels[result] ?? `⏳ ${result}`;
               const url = jobs.get(job) ?? `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
-              return `| ${variant} | ${status} | [${job}](${url}) |`;
+              const key = variant === 'Linux KMS (VKMS)' ? 'kms' : variant === 'Linux fbdev (vfb)' ? 'fbdev' : '';
+              const stats = key ? demoStats(key) : 'Not run (no virtual device configured)';
+              const image = key ? screenshot(key) : '—';
+              return `| ${variant} | ${status} | ${stats} | ${image} | [${job}](${url}) |`;
             });
             const shortSha = process.env.HEAD_SHA.slice(0, 7);
             const body = [
               marker,
               '## Framebuffer CI results',
               '',
-              '| Variant | Result | CI job |',
-              '| --- | --- | --- |',
+              '| Variant | CI tests | 1s demo stats | Screenshot | CI job |',
+              '| --- | --- | --- | --- | --- |',
               ...rows,
               '',
               `Commit: [\`${shortSha}\`](https://github.com/${owner}/${repo}/commit/${process.env.HEAD_SHA}).`,

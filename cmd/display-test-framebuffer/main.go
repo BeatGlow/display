@@ -53,6 +53,7 @@ func run() (err error) {
 	height := flag.Int("height", 0, "exact output mode height (default: preferred mode)")
 	duration := flag.Duration("duration", 0, "run time; 0 runs until interrupted")
 	fps := flag.Int("fps", 60, "animation refresh rate (1-120 Hz; KMS waits for vblank)")
+	screenshot := flag.String("screenshot", "", "write the final framebuffer image as a PNG")
 	flag.Parse()
 	if flag.NArg() != 0 {
 		return fmt.Errorf("unexpected arguments: %v", flag.Args())
@@ -87,7 +88,12 @@ func run() (err error) {
 	if err != nil {
 		return err
 	}
-	defer func() { err = errors.Join(err, screen.Close()) }()
+	defer func() {
+		if *screenshot != "" && err == nil {
+			err = errors.Join(err, saveScreenshot(screen, *screenshot))
+		}
+		err = errors.Join(err, screen.Close())
+	}()
 
 	bounds := screen.Bounds()
 	if bounds.Empty() {
@@ -210,6 +216,24 @@ func run() (err error) {
 		frames++
 		previousFrame = frameStarted
 	}
+}
+
+func saveScreenshot(screen display.Display, path string) error {
+	bounds := screen.Bounds()
+	preview := image.NewRGBA(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
+	draw.Draw(preview, preview.Bounds(), screen, bounds.Min, draw.Src)
+	file, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("create framebuffer screenshot %s: %w", path, err)
+	}
+	if err := png.Encode(file, preview); err != nil {
+		return errors.Join(fmt.Errorf("encode framebuffer screenshot %s: %w", path, err), file.Close())
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close framebuffer screenshot %s: %w", path, err)
+	}
+	fmt.Printf("Screenshot saved to %s\n", path)
+	return nil
 }
 
 func copyFrame(screen display.Display, frame *image.RGBA) error {
