@@ -25,3 +25,11 @@
 
 # ...even if they are in subdirectories
 !*/
+!/cmd/
+!/cmd/display-test-kms/
+!/cmd/display-test-kms/assets/
+!/cmd/display-test-kms/assets/beatglow-gray4.png
+!/cmd/display-test-kms/assets/BEATGLOW-LOGO-LICENSE
+!/internal/
+!/internal/buffer/
+!/internal/buffer/xrgb_arm64.s
