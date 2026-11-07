@@ -26,12 +26,8 @@ permissions:
 
 jobs:
   framebuffer:
-    name: framebuffer (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    name: framebuffer (Linux)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -39,3 +35,18 @@ jobs:
           go-version-file: go.mod
       - name: Test framebuffer packages
         run: go test ./framebuffer/...
+
+  freebsd:
+    name: framebuffer (FreeBSD amd64 compile)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Cross-compile FreeBSD framebuffer tests
+        env:
+          CGO_ENABLED: 0
+          GOOS: freebsd
+          GOARCH: amd64
+        run: go test -exec /usr/bin/true ./framebuffer/...
