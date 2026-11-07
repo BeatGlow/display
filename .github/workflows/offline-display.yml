@@ -42,25 +42,39 @@ jobs:
           else
             while IFS= read -r path; do
               case "$path" in
-                gu3000.go) drivers+=(gu3000) ;;
-                gu256x64d7000.go) drivers+=(gu256x64d7000) ;;
-                gp1247ai.go) drivers+=(gp1247ai) ;;
-                gp1287.go) drivers+=(gp1278) ;;
-                gp1294.go) drivers+=(gp1294) ;;
-                sh1106.go) drivers+=(sh1106) ;;
-                ssd1305.go) drivers+=(ssd1305) ;;
-                ssd1306.go) drivers+=(ssd1306) ;;
-                ssd1322.go) drivers+=(ssd1322) ;;
-                sh1122.go) drivers+=(sh1122) ;;
-                st7735.go) drivers+=(st7735) ;;
-                st7789.go) drivers+=(st7789) ;;
+                cmd/display-test/offline_*.go)
+                  if [[ "$path" == "cmd/display-test/offline_test.go" ]]; then
+                    all_drivers=1
+                  else
+                    driver="${path##*/offline_}"
+                    drivers+=("${driver%.go}")
+                  fi
+                  ;;
+                *.go)
+                  source="${path%.go}"
+                  driver="$source"
+                  [[ "$driver" == "gp1287" ]] && driver=gp1278
+                  if [[ "$path" == "$source.go" && -f "cmd/display-test/offline_$driver.go" ]]; then
+                    drivers+=("$driver")
+                  else
+                    all_drivers=1
+                  fi
+                  ;;
                 *) all_drivers=1 ;;
               esac
             done < <(git diff --name-only "$base" "$GITHUB_SHA")
           fi
 
+          if [[ ${#drivers[@]} -gt 0 ]]; then
+            mapfile -t drivers < <(printf '%s\n' "${drivers[@]}" | sort -u)
+          fi
           if [[ "$all_drivers" == "1" || ${#drivers[@]} == 0 ]]; then
-            drivers=(gu3000 gu256x64d7000 gp1247ai gp1278 gp1294 sh1106 ssd1305 ssd1306 ssd1322 sh1122 st7735 st7789)
+            drivers=()
+            for settings in cmd/display-test/offline_*.go; do
+              [[ "$settings" == "cmd/display-test/offline_test.go" ]] && continue
+              driver="${settings##*/offline_}"
+              drivers+=("${driver%.go}")
+            done
           fi
 
           drivers_json='['

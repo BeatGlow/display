@@ -30,34 +30,17 @@ type busEvent struct {
 }
 
 func (c *recordingConn) VerifyInitialization(driver string) error {
-	var expected [][]byte
-	switch strings.ToLower(driver) {
-	case "gp1247ai":
-		expected = [][]byte{
-			{0xAA}, {0x78, 0x08}, {0xCC, 0x05, 0x00},
-			{0xE0, 0xFC, 0x3E, 0x00, 0x20, 0x80, 0x80, 0x80},
-			{0xB1, 0x20, 0x3F, 0x00, 0x01}, {0xA0, 0x02, 0x00}, {0x55},
-			{0xC0, 0x00, 0x00}, {0x80, 0x80}, {0x6D}, {0x80, 0x80},
-		}
-	case "gp1278", "gp1287":
-		expected = [][]byte{
-			{0xAA}, {0x78, 0x08}, {0xCC, 0x02, 0x00},
-			{0xE0, 0xFF, 0x31, 0x00, 0x20, 0x20, 0x00, 0x80},
-			{0xB1, 0x20, 0x3F, 0x00, 0x01}, {0xA0, 0x01, 0x2B}, {0x55},
-			{0xC0, 0x00, 0x00}, {0x08, 0x00}, {0x80, 0x00}, {0x6D}, {0x80, 0x00},
-		}
-	case "gp1294":
-		expected = [][]byte{
-			{0xAA}, {0x78, 0x08}, {0xCC, 0x01, 0x1F, 0x00, 0xFF, 0x2F, 0x00, 0x20},
-			{0xA0, 0x28, 0x00}, {0xC0, 0x00, 0x00}, {0x08, 0x00}, {0x80, 0x00},
-			{0xF0, 0x00, 0x00, 0x7F}, {0x6D},
-		}
-	default:
+	config, ok := offlineDriverConfigs[strings.ToLower(driver)]
+	if !ok || len(config.initialization) == 0 {
 		return nil
 	}
-	for i := range expected {
-		for j := range expected[i] {
-			expected[i][j] = reverseBits(expected[i][j])
+	expected := make([][]byte, len(config.initialization))
+	for i, command := range config.initialization {
+		expected[i] = append([]byte(nil), command...)
+		if config.reverseInitBits {
+			for j := range expected[i] {
+				expected[i][j] = reverseBits(expected[i][j])
+			}
 		}
 	}
 	index := 0
@@ -94,22 +77,22 @@ func (c *recordingConn) Interface() any { return c }
 // selected driver is expected to send. Controller command bytes stay in the
 // event stream so this also catches missing or truncated transfers.
 func (c *recordingConn) VerifyFrame(driver string, frame image.Image, from int) (image.Image, error) {
+	driver = strings.ToLower(driver)
+	config := offlineDriverConfigs[driver]
 	want, err := encodeFrame(driver, frame)
 	if err != nil {
 		return nil, err
 	}
 	events := c.events[from:]
-	var captured []byte
-	driver = strings.ToLower(driver)
-	if driver == "gp1278" || driver == "gp1247ai" {
+	if config.pageCommand != nil {
 		pages := (frame.Bounds().Dy() + 7) / 8
 		page := 0
 		for _, event := range events {
 			if event.Type != "command" || page == pages {
 				continue
 			}
-			want := []byte{reverseBits(0xF0), 0, reverseBits(byte(page * 8)), reverseBits(0x07)}
-			if bytes.Equal(event.Bytes, want) {
+			expected := config.pageCommand(page)
+			if bytes.Equal(event.Bytes, expected) {
 				page++
 			}
 		}
@@ -117,15 +100,12 @@ func (c *recordingConn) VerifyFrame(driver string, frame image.Image, from int) 
 			return nil, fmt.Errorf("%s refresh sent %d valid page commands; expected %d", driver, page, pages)
 		}
 	}
-	if driver == "gp1294" {
+	var captured []byte
+	if config.frameInCommand {
+		prefix := config.frameCommandPrefix(frame)
 		for _, event := range events {
-			if event.Type == "command" {
-				if index := bytes.LastIndex(event.Bytes, want); index >= 0 {
-					if len(event.Bytes) != len(want)+4 {
-						return nil, fmt.Errorf("gp1294 refresh command has %d bytes; expected %d", len(event.Bytes), len(want)+4)
-					}
-					captured = event.Bytes[index : index+len(want)]
-				}
+			if event.Type == "command" && bytes.HasPrefix(event.Bytes, prefix) && bytes.HasSuffix(event.Bytes, want) {
+				captured = event.Bytes[len(prefix):]
 			}
 		}
 	} else {
@@ -135,31 +115,18 @@ func (c *recordingConn) VerifyFrame(driver string, frame image.Image, from int) 
 				payload = append(payload, event.Bytes...)
 			}
 		}
-		extra := 0
-		switch driver {
-		case "gu256x64d7000":
-			header := []byte{
-				0x1f, 0x28, 0x66, 0x11,
-				byte(frame.Bounds().Dx()), byte(frame.Bounds().Dx() >> 8),
-				byte(frame.Bounds().Dy() / 8), byte((frame.Bounds().Dy() / 8) >> 8),
-				0x01,
+		if config.frameDataPrefix != nil {
+			prefix := config.frameDataPrefix(frame)
+			if !bytes.HasPrefix(payload, prefix) {
+				return nil, fmt.Errorf("%s refresh has invalid data prefix: got % x, want % x", driver, payload[:min(len(payload), len(prefix))], prefix)
 			}
-			if !bytes.HasPrefix(payload, header) {
-				return nil, fmt.Errorf("%s refresh has invalid bit-image header: got % x, want % x", driver, payload[:min(len(payload), len(header))], header)
-			}
-			extra = len(header)
-		case "gu3000":
-			extra = 8
-		case "st7735", "st7789":
-			extra = 8 // X and Y address windows, two 4-byte argument blocks.
+			payload = payload[len(prefix):]
 		}
-		if len(payload) != len(want)+extra {
-			return nil, fmt.Errorf("%s refresh sent %d data bytes; expected %d pixel bytes plus %d command bytes", driver, len(payload), len(want), extra)
+		if len(payload) != len(want)+config.frameDataExtra {
+			return nil, fmt.Errorf("%s refresh sent %d data bytes; expected %d pixel bytes plus %d framing bytes", driver, len(payload), len(want), config.frameDataExtra)
 		}
 		if index := bytes.LastIndex(payload, want); index >= 0 {
 			captured = payload[index : index+len(want)]
-		} else {
-			return nil, fmt.Errorf("%s refresh traffic has %d data bytes but does not contain the expected %d-byte framebuffer (expected % x; received % x)", driver, len(payload), len(want), want[:min(8, len(want))], payload[:min(8, len(payload))])
 		}
 	}
 	if captured == nil {
@@ -195,10 +162,11 @@ func decodeFrame(driver string, frame image.Image, encoded []byte) (*image.RGBA,
 	bounds := frame.Bounds()
 	w, h := bounds.Dx(), bounds.Dy()
 	decoded := image.NewRGBA(image.Rect(0, 0, w, h))
+	config := offlineDriverConfigs[strings.ToLower(driver)]
 	kind := frame.At(bounds.Min.X, bounds.Min.Y)
 	if _, ok := kind.(pixel.Mono); ok {
 		data := append([]byte(nil), encoded...)
-		if strings.EqualFold(driver, "gp1278") || strings.EqualFold(driver, "gp1287") || strings.EqualFold(driver, "gp1247ai") || strings.EqualFold(driver, "gp1294") {
+		if config.reverseFrameBits {
 			for i := range data {
 				data[i] = reverseBits(data[i])
 			}
@@ -207,9 +175,10 @@ func decodeFrame(driver string, frame image.Image, encoded []byte) (*image.RGBA,
 		for y := range h {
 			for x := range w {
 				index := (y/8)*w + x
-				if strings.EqualFold(driver, "gp1294") {
+				switch config.monoLayout {
+				case monoColumnMajor:
 					index = x*pages + y/8
-				} else if strings.EqualFold(driver, "gp1247ai") {
+				case monoPadded256:
 					index = (y/8)*256 + x
 				}
 				value := uint8(0)
@@ -248,10 +217,9 @@ func decodeFrame(driver string, frame image.Image, encoded []byte) (*image.RGBA,
 		}
 		return decoded, nil
 	}
-	bytesPerPixel := 2
 	for y := range h {
 		for x := range w {
-			i := (y*w + x) * bytesPerPixel
+			i := (y*w + x) * 2
 			v := uint16(encoded[i])<<8 | uint16(encoded[i+1])
 			var r, g, b, a uint32
 			if _, ok := kind.(pixel.CRGB15); ok {
@@ -266,84 +234,54 @@ func decodeFrame(driver string, frame image.Image, encoded []byte) (*image.RGBA,
 }
 
 func (c *recordingConn) VerifyContrast(driver string, from int, level uint8, pin *offlinePin) (bool, error) {
-	events := c.events[from:]
-	contains := func(kind string, want []byte) bool {
-		for _, event := range events {
-			if event.Type == kind && bytes.Contains(event.Bytes, want) {
-				return true
-			}
-		}
-		return false
+	config := offlineDriverConfigs[strings.ToLower(driver)].contrast
+	if config.none {
+		return false, nil
 	}
-	var kind string
-	var want []byte
-	switch strings.ToLower(driver) {
-	case "gu3000":
-		want = []byte{0x02, 0x44, 0xff, 0x58, level}
-		kind = "data"
-	case "gu256x64d7000":
-		brightness := byte((uint16(level)*7)/255 + 1)
-		want = []byte{0x1f, 0x58, brightness}
-		kind = "data"
-	case "gp1278", "gp1287":
-		v := uint16(level) * 4
-		want = []byte{reverseBits(0xa0), reverseBits(byte(v >> 8)), reverseBits(byte(v))}
-		kind = "command"
-	case "gp1294":
-		v := uint16(level) << 2
-		want = []byte{reverseBits(0xa0), reverseBits(byte(v)), reverseBits(byte(v >> 8))}
-		kind = "command"
-	case "gp1247ai":
-		v := uint16(level) * 4
-		want = []byte{reverseBits(0xa0), reverseBits(byte(v >> 8)), reverseBits(byte(v))}
-		kind = "command"
-	case "ssd1305", "ssd1306", "sh1106", "sh1122":
-		want, kind = []byte{0x81, level}, "command"
-	case "ssd1322":
-		want, kind = []byte{0xc1, level}, "command"
-	case "st7735":
+	if config.pwm {
 		expected := gpio.DutyMax / 0xff * gpio.Duty(level)
 		if pin != nil && pin.pwmSet && pin.duty == expected {
 			return true, nil
 		}
-		return true, fmt.Errorf("st7735 contrast did not set the expected backlight PWM duty")
-	case "st7789", "virtual":
+		return true, fmt.Errorf("%s contrast did not set the expected backlight PWM duty", driver)
+	}
+	if config.data == nil {
 		return false, nil
-	default:
-		return false, fmt.Errorf("no contrast verifier for driver %q", driver)
 	}
-	if !contains(kind, want) {
-		return true, fmt.Errorf("%s contrast call did not emit expected %s bytes % x", driver, kind, want)
+	want := config.data(level)
+	for _, event := range c.events[from:] {
+		if event.Type == config.kind && bytes.Contains(event.Bytes, want) {
+			return true, nil
+		}
 	}
-	return true, nil
+	return true, fmt.Errorf("%s contrast call did not emit expected %s bytes % x", driver, config.kind, want)
 }
 
 func encodeFrame(driver string, frame image.Image) ([]byte, error) {
 	bounds := frame.Bounds()
 	width, height := bounds.Dx(), bounds.Dy()
+	config := offlineDriverConfigs[strings.ToLower(driver)]
 	var out []byte
 	switch frame.At(bounds.Min.X, bounds.Min.Y).(type) {
 	case pixel.Mono:
 		pages := (height + 7) / 8
-		if strings.EqualFold(driver, "gp1294") {
+		for page := range pages {
+			pageWidth := width
+			if config.monoLayout == monoPadded256 {
+				pageWidth = 256
+			}
+			for x := range pageWidth {
+				if x < width {
+					out = append(out, monoByte(frame, x, page*8))
+				} else {
+					out = append(out, 0)
+				}
+			}
+		}
+		if config.monoLayout == monoColumnMajor {
+			out = out[:0]
 			for x := range width {
 				for page := range pages {
-					out = append(out, monoByte(frame, x, page*8))
-				}
-			}
-		} else if strings.EqualFold(driver, "gp1247ai") {
-			for page := range pages {
-				for x := range 256 {
-					if x < width {
-						out = append(out, monoByte(frame, x, page*8))
-					} else {
-						out = append(out, 0)
-					}
-				}
-			}
-		} else {
-			for page := range pages {
-				for x := range width {
 					out = append(out, monoByte(frame, x, page*8))
 				}
 			}
@@ -353,7 +291,7 @@ func encodeFrame(driver string, frame image.Image) ([]byte, error) {
 		out = make([]byte, stride*height)
 		for y := range height {
 			for x := range width {
-				v := pixel.Gray2Model.Convert(frame.At(x, y)).(pixel.Gray2).Y & 3
+				v := pixel.Gray2Model.Convert(frame.At(bounds.Min.X+x, bounds.Min.Y+y)).(pixel.Gray2).Y & 3
 				out[y*stride+x/4] |= v << uint((3-x%4)*2)
 			}
 		}
@@ -362,7 +300,7 @@ func encodeFrame(driver string, frame image.Image) ([]byte, error) {
 		out = make([]byte, stride*height)
 		for y := range height {
 			for x := range width {
-				v := pixel.Gray4Model.Convert(frame.At(x, y)).(pixel.Gray4).Y & 0xf
+				v := pixel.Gray4Model.Convert(frame.At(bounds.Min.X+x, bounds.Min.Y+y)).(pixel.Gray4).Y & 0xf
 				if x&1 == 0 {
 					out[y*stride+x/2] |= v << 4
 				} else {
@@ -373,21 +311,21 @@ func encodeFrame(driver string, frame image.Image) ([]byte, error) {
 	case pixel.CRGB15:
 		for y := range height {
 			for x := range width {
-				v := pixel.CRGB15Model.Convert(frame.At(x, y)).(pixel.CRGB15).V
+				v := pixel.CRGB15Model.Convert(frame.At(bounds.Min.X+x, bounds.Min.Y+y)).(pixel.CRGB15).V
 				out = append(out, byte(v>>8), byte(v))
 			}
 		}
 	case pixel.CRGB16:
 		for y := range height {
 			for x := range width {
-				v := pixel.CRGB16Model.Convert(frame.At(x, y)).(pixel.CRGB16).V
+				v := pixel.CRGB16Model.Convert(frame.At(bounds.Min.X+x, bounds.Min.Y+y)).(pixel.CRGB16).V
 				out = append(out, byte(v>>8), byte(v))
 			}
 		}
 	default:
 		return nil, fmt.Errorf("no offline framebuffer encoder for color model %T", frame.ColorModel())
 	}
-	if strings.EqualFold(driver, "gp1278") || strings.EqualFold(driver, "gp1247ai") || strings.EqualFold(driver, "gp1294") {
+	if config.reverseFrameBits {
 		for i := range out {
 			out[i] = reverseBits(out[i])
 		}
@@ -418,16 +356,8 @@ type brightnessPreview struct {
 
 func atBrightness(src image.Image, driver string, level uint8) image.Image {
 	scale := level
-	switch strings.ToLower(driver) {
-	case "gp1278", "gp1287", "gp1247ai", "gp1294":
-		scale = uint8(uint16(level) * 4 * 255 / 1023)
-	case "gu256x64d7000":
-		scale = uint8(((uint16(level) * 7 / 255) + 1) * 255 / 8)
-	case "st7789", "virtual":
-		// The ST7789 driver currently has no contrast/backlight implementation.
-		if driver == "st7789" {
-			scale = 255
-		}
+	if fn := offlineDriverConfigs[strings.ToLower(driver)].brightnessScale; fn != nil {
+		scale = fn(level)
 	}
 	return brightnessPreview{Image: src, scale: scale}
 }
