@@ -25,15 +25,16 @@ permissions:
   contents: read
 
 jobs:
-  framebuffer:
-    name: framebuffer (Linux VKMS + vfb)
-    runs-on: ubuntu-latest
+  linux-kms:
+    name: framebuffer (Linux VKMS)
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
-      - name: Enable virtual KMS and fbdev devices
+      - name: Enable VKMS
         shell: bash
         run: |
-          sudo modprobe vfb vfb_enable=1 mode_option=640x480-16@60
+          sudo apt-get update
+          sudo apt-get install -y "linux-modules-extra-$(uname -r)"
           sudo modprobe vkms
           sudo udevadm settle
 
@@ -47,6 +48,38 @@ jobs:
             fi
           done
 
+          if [[ -z "$kms_device" ]]; then
+            echo "Failed to find the VKMS device node."
+            ls -l /dev/dri 2>/dev/null || true
+            exit 1
+          fi
+
+          printf 'VKMS_DEVICE=%s\n' "$kms_device" >> "$GITHUB_ENV"
+      - name: Test KMS in Docker
+        run: |
+          docker run --rm \
+            --device="$VKMS_DEVICE" \
+            --volume="$GITHUB_WORKSPACE:/workspace" \
+            --workdir=/workspace \
+            --env="CGO_ENABLED=0" \
+            --env="DISPLAY_TEST_REQUIRE_HARDWARE=1" \
+            --env="DISPLAY_TEST_KMS_DEVICE=$VKMS_DEVICE" \
+            golang:1.23.4-bookworm \
+            sh -c 'go test -v ./framebuffer/kms/... && go test -v -run "^TestHardwareKMS$" ./framebuffer'
+
+  linux-fbdev:
+    name: framebuffer (Linux vfb)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Enable vfb
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y "linux-modules-extra-$(uname -r)"
+          sudo modprobe vfb vfb_enable=1 mode_option=640x480-16@60
+          sudo udevadm settle
+
           fbdev_device=
           for device in /dev/fb*; do
             [[ -e "$device" ]] || continue
@@ -57,26 +90,24 @@ jobs:
             fi
           done
 
-          if [[ -z "$kms_device" || -z "$fbdev_device" ]]; then
-            echo "Failed to find the VKMS and vfb device nodes."
-            ls -l /dev/dri /dev/fb* 2>/dev/null || true
+          if [[ -z "$fbdev_device" ]]; then
+            echo "Failed to find the vfb device node."
+            ls -l /dev/fb* 2>/dev/null || true
             exit 1
           fi
 
-          printf 'VKMS_DEVICE=%s\nFBDEV_DEVICE=%s\n' "$kms_device" "$fbdev_device" >> "$GITHUB_ENV"
-      - name: Test framebuffer packages in Docker
+          printf 'FBDEV_DEVICE=%s\n' "$fbdev_device" >> "$GITHUB_ENV"
+      - name: Test fbdev in Docker
         run: |
           docker run --rm \
-            --device="$VKMS_DEVICE" \
             --device="$FBDEV_DEVICE" \
             --volume="$GITHUB_WORKSPACE:/workspace" \
             --workdir=/workspace \
             --env="CGO_ENABLED=0" \
             --env="DISPLAY_TEST_REQUIRE_HARDWARE=1" \
-            --env="DISPLAY_TEST_KMS_DEVICE=$VKMS_DEVICE" \
             --env="DISPLAY_TEST_FBDEV_DEVICE=$FBDEV_DEVICE" \
             golang:1.23.4-bookworm \
-            go test -v ./framebuffer/...
+            sh -c 'go test -v ./framebuffer/fbdev/... && go test -v -run "^TestHardwareFBDev$" ./framebuffer'
 
   freebsd:
     name: framebuffer (FreeBSD 15.1 amd64)
