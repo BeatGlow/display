@@ -332,12 +332,12 @@ func (p *CBGR15Image) Set(x, y int, c color.Color) {
 		return
 	}
 
-	v := cbgr15Model(c).(CBGR15).V
+	v := cbgr15Value(c).V
 	p.Order.PutUint16(p.Pix[x*2+y*p.Stride:], v)
 }
 
 func (p *CBGR15Image) Fill(c color.Color) {
-	value := cbgr15Model(c).(CBGR15).V
+	value := cbgr15Value(c).V
 	var bytes [2]byte
 	p.Order.PutUint16(bytes[:], value)
 	fillRepeatedWord(p.Pix, bytes[0], bytes[1])
@@ -374,12 +374,12 @@ func (p *CBGR16Image) Set(x, y int, c color.Color) {
 		return
 	}
 
-	v := cbgr16Model(c).(CBGR16).V
+	v := cbgr16Value(c).V
 	p.Order.PutUint16(p.Pix[x*2+y*p.Stride:], v)
 }
 
 func (p *CBGR16Image) Fill(c color.Color) {
-	value := cbgr16Model(c).(CBGR16).V
+	value := cbgr16Value(c).V
 	var bytes [2]byte
 	p.Order.PutUint16(bytes[:], value)
 	fillRepeatedWord(p.Pix, bytes[0], bytes[1])
@@ -416,12 +416,12 @@ func (p *CRGB15Image) Set(x, y int, c color.Color) {
 		return
 	}
 
-	v := crgb15Model(c).(CRGB15).V
+	v := crgb15Value(c).V
 	p.Order.PutUint16(p.Pix[x*2+y*p.Stride:], v)
 }
 
 func (p *CRGB15Image) Fill(c color.Color) {
-	value := crgb15Model(c).(CRGB15).V
+	value := crgb15Value(c).V
 	var bytes [2]byte
 	p.Order.PutUint16(bytes[:], value)
 	fillRepeatedWord(p.Pix, bytes[0], bytes[1])
@@ -458,12 +458,12 @@ func (p *CRGB16Image) Set(x, y int, c color.Color) {
 		return
 	}
 
-	v := crgb16Model(c).(CRGB16).V
+	v := crgb16Value(c).V
 	p.Order.PutUint16(p.Pix[x*2+y*p.Stride:], v)
 }
 
 func (p *CRGB16Image) Fill(c color.Color) {
-	value := crgb16Model(c).(CRGB16).V
+	value := crgb16Value(c).V
 	var bytes [2]byte
 	p.Order.PutUint16(bytes[:], value)
 	fillRepeatedWord(p.Pix, bytes[0], bytes[1])

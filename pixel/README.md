@@ -34,3 +34,21 @@ go test ./pixel -run '^$' -bench '^BenchmarkFill400x1280$' -benchmem -benchtime=
 On the Apple M2 used for this change, repeated runs measured median optimized
 fill times of 5.64 µs for Gray4 and 21.70 µs for CRGB16. The matching scalar
 reference medians were 76.97 µs and 1.11 ms.
+
+## Color conversion
+
+The 16-bit image `Set` and `Fill` methods use typed conversion helpers so they do
+not box each converted pixel into the public `color.Color` interface. On an
+Apple M2, three 500 ms runs measured:
+
+| Conversion | `ColorModel.Convert` | Typed setter helper |
+| --- | ---: | ---: |
+| CRGB16 from RGBA | 11.29 ns, 1 alloc | 3.24 ns, 0 allocs |
+| CRGB16 from NRGBA | 10.55 ns, 1 alloc | 3.54 ns, 0 allocs |
+| CBGR16 from RGBA | 10.47 ns, 1 alloc | 3.32 ns, 0 allocs |
+
+Reproduce all model/source combinations with:
+
+```sh
+go test ./pixel -run '^$' -bench '^BenchmarkPixelColorConversion$' -benchmem -benchtime=500ms -count=3
+```

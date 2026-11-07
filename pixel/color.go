@@ -115,9 +115,11 @@ func (c CBGR15) RGBA() (r, g, b, a uint32) {
 	return uint32(red), uint32(grn), uint32(blu), 0xffff
 }
 
-func cbgr15Model(c color.Color) color.Color {
-	if _, ok := c.(CBGR15); ok {
-		return c
+func cbgr15Model(c color.Color) color.Color { return cbgr15Value(c) }
+
+func cbgr15Value(c color.Color) CBGR15 {
+	if v, ok := c.(CBGR15); ok {
+		return v
 	}
 	r, g, b, _ := c.RGBA()
 	b = (b & 0xF800) >> 1
@@ -147,9 +149,11 @@ func (c CRGB15) RGBA() (r, g, b, a uint32) {
 	return uint32(red), uint32(grn), uint32(blu), 0xffff
 }
 
-func crgb15Model(c color.Color) color.Color {
-	if _, ok := c.(CRGB15); ok {
-		return c
+func crgb15Model(c color.Color) color.Color { return crgb15Value(c) }
+
+func crgb15Value(c color.Color) CRGB15 {
+	if v, ok := c.(CRGB15); ok {
+		return v
 	}
 	r, g, b, _ := c.RGBA()
 	r = (r & 0xF800) >> 1
@@ -179,7 +183,9 @@ func (c CBGR16) RGBA() (r, g, b, a uint32) {
 	return uint32(red), uint32(grn), uint32(blu), 0xffff
 }
 
-func cbgr16Model(c color.Color) color.Color {
+func cbgr16Model(c color.Color) color.Color { return cbgr16Value(c) }
+
+func cbgr16Value(c color.Color) CBGR16 {
 	switch c := c.(type) {
 	case Mono:
 		if c.On {
@@ -188,15 +194,13 @@ func cbgr16Model(c color.Color) color.Color {
 		return CBGR16{}
 	case Gray4:
 		y := uint16(c.Y<<1 | c.Y)
-		b := y
-		g := y >> 5
-		r := y >> 11
+		b, g, r := y, y>>5, y>>11
 		return CBGR16{b | g | r}
 	case CBGR16:
 		return c
 	default:
 		r, g, b, _ := c.RGBA()
-		b = (b & 0xF800)
+		b = b & 0xF800
 		g = (g & 0xFC00) >> 5
 		r = (r & 0xF800) >> 11
 		return CBGR16{uint16(b | g | r)}
@@ -225,7 +229,9 @@ func (c CRGB16) RGBA() (r, g, b, a uint32) {
 	return uint32(red), uint32(grn), uint32(blu), 0xffff
 }
 
-func crgb16Model(c color.Color) color.Color {
+func crgb16Model(c color.Color) color.Color { return crgb16Value(c) }
+
+func crgb16Value(c color.Color) CRGB16 {
 	switch c := c.(type) {
 	case Mono:
 		if c.On {
@@ -234,15 +240,13 @@ func crgb16Model(c color.Color) color.Color {
 		return CRGB16{}
 	case Gray4:
 		y := uint16(c.Y<<1 | c.Y)
-		r := y
-		g := y >> 5
-		b := y >> 11
+		r, g, b := y, y>>5, y>>11
 		return CRGB16{r | g | b}
 	case CRGB16:
 		return c
 	default:
 		r, g, b, _ := c.RGBA()
-		r = (r & 0xF800)
+		r = r & 0xF800
 		g = (g & 0xFC00) >> 5
 		b = (b & 0xF800) >> 11
 		return CRGB16{uint16(r | g | b)}
