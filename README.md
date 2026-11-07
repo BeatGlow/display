@@ -2,24 +2,24 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/BeatGlow/display.svg)](https://pkg.go.dev/github.com/BeatGlow/display)
 
-`github.com/BeatGlow/display` is a Go library for drawing to small OLED, LCD, and VFD displays. It pairs hardware display drivers with Go's standard image interfaces, so graphics code can work across different controllers and display types.
+`github.com/BeatGlow/display` is a Go library for drawing to small OLED, LCD, and VFD displays. It brings hardware display drivers and Go's familiar image interfaces together, so application code can draw pixels, text, and shapes without being tied to one controller.
 
-## Features
+## What you can build with it
 
-- Monochrome, grayscale, and color display support.
-- I²C, SPI, UART, and 8080-style parallel connections.
-- Linux framebuffer and DRM/KMS display backends.
-- CPU-accelerated pixel conversion for KMS scanout buffers.
-- Image composition, shape drawing, packed pixel formats, fonts, widgets, and menus.
-- A KMS demonstration utility with a color and brightness chart, frame-rate display, and animated logo.
+- Drive monochrome, grayscale, and color displays through I²C, SPI, or 8080-style parallel connections.
+- Work with displays through the standard `image.Image`, `draw.Image`, and `color.Color` interfaces.
+- Compose graphics with pixel formats and drawing helpers designed for small displays.
+- Build compact interfaces with the widget, font, and menu packages.
+- Select a Linux DRM/KMS or fbdev display through `framebuffer`, or open a backend directly from its subpackage.
+- Drive Linux and FreeBSD displays through DRM/KMS, with connector and mode selection plus vblank-synchronized page flips.
 
-## Display support
+## Display controllers
 
-Drivers support display families including SSD1305, SSD1306, SSD1322, SSD1362, SH1106, SH1122, ST7735, ST7789, GU3000, GU256X64D-7000, GP1247AI, GP1287BI, and GP1294AI. See the [Go package reference](https://pkg.go.dev/github.com/BeatGlow/display) for API details.
+The package includes drivers for SSD1305, SSD1306, SSD1322, SSD1362, SH1106, SH1122, ST7735, ST7789, GU3000, GU256X64D-7000, GP1247AI, GP1287BI, and GP1294AI. Check the [Go package reference](https://pkg.go.dev/github.com/BeatGlow/display) for the current API and controller details.
 
-## Draw with Go image interfaces
+## A familiar drawing model
 
-Display drivers implement `display.Display`, which also satisfies Go's `draw.Image` interface. The same drawing code can target a hardware display or any compatible image:
+Display drivers implement `display.Display`, which is also a Go `draw.Image`. Use the same drawing code with a hardware display, an in-memory image, or another compatible destination:
 
 ```go
 import (
@@ -35,21 +35,22 @@ func render(dst draw.Image) {
 }
 ```
 
-After drawing to a display's image buffer, call `Refresh` to update the panel. Drivers expose display controls such as rotation, contrast, and power where supported.
+Once rendered, a display's `Refresh` method sends its image buffer to the panel. Each driver also exposes controls such as rotation, contrast, and display power where supported.
 
 ## Packages
 
 | Package | Purpose |
 | --- | --- |
-| `display` | Display interface, hardware connections, and panel drivers |
+| `display` | Display interface, controller drivers, and hardware connections |
 | `pixel` | Packed monochrome, grayscale, and RGB image formats |
 | `draw` | Image composition and shape drawing helpers |
-| `draw/menu` | Menu model for compact interfaces |
+| `draw/menu` | Menu model for compact, button-driven interfaces |
 | `ui` and `ui/font` | Widgets, styles, themes, and text rendering |
-| `framebuffer` | Linux framebuffer as a display destination |
-| `kms` | Linux DRM/KMS output with mode selection and synchronized page flips |
+| `framebuffer` | Automatic Linux/FreeBSD DRM/KMS and Linux fbdev selection |
+| `framebuffer/fbdev` | Linux fbdev output |
+| `framebuffer/kms` | Linux and FreeBSD DRM/KMS output |
 
-See the [`kms` package README](kms/README.md) for pixel-conversion benchmarks and end-to-end KMS performance results.
+The KMS backend uses optimized CPU pixel conversion to prepare scanout buffers from the library's image formats. See the [`framebuffer/kms` package README](framebuffer/kms/README.md) for benchmarks and end-to-end performance results.
 
 ## Install
 
