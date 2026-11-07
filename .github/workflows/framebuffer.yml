@@ -67,10 +67,21 @@ jobs:
             export DISPLAY_TEST_KMS_DEVICE=$kms_device
             go test -v ./framebuffer/kms/...
             go test -v -run '^TestHardwareKMS$' ./framebuffer
-            go run ./cmd/display-test-framebuffer \
+            if go run ./cmd/display-test-framebuffer \
               -backend kms -kms-device "$kms_device" -duration 1s \
-              -screenshot framebuffer-kms.png > framebuffer-kms.txt 2>&1
+              -screenshot framebuffer-kms.png > framebuffer-kms.txt 2>&1; then
+              echo 0 > framebuffer-kms.exitcode
+            else
+              echo $? > framebuffer-kms.exitcode
+            fi
             cat framebuffer-kms.txt
+      - name: Check KMS demo result
+        if: always()
+        run: |
+          if [[ -f framebuffer-kms.txt ]]; then cat framebuffer-kms.txt; fi
+          if [[ -f framebuffer-kms.exitcode ]] && [[ "$(cat framebuffer-kms.exitcode)" != 0 ]]; then
+            exit "$(cat framebuffer-kms.exitcode)"
+          fi
       - name: Upload KMS demo screenshot and stats
         id: demo-artifact
         if: always()
@@ -80,6 +91,7 @@ jobs:
           path: |
             framebuffer-kms.png
             framebuffer-kms.txt
+            framebuffer-kms.exitcode
           if-no-files-found: ignore
 
   linux-fbdev:
@@ -133,10 +145,21 @@ jobs:
             export DISPLAY_TEST_FBDEV_DEVICE=$fbdev_device
             go test -v ./framebuffer/fbdev/...
             go test -v -run '^TestHardwareFBDev$' ./framebuffer
-            go run ./cmd/display-test-framebuffer \
+            if go run ./cmd/display-test-framebuffer \
               -backend fbdev -fbdev-device "$fbdev_device" -duration 1s \
-              -screenshot framebuffer-fbdev.png > framebuffer-fbdev.txt 2>&1
+              -screenshot framebuffer-fbdev.png > framebuffer-fbdev.txt 2>&1; then
+              echo 0 > framebuffer-fbdev.exitcode
+            else
+              echo $? > framebuffer-fbdev.exitcode
+            fi
             cat framebuffer-fbdev.txt
+      - name: Check fbdev demo result
+        if: always()
+        run: |
+          if [[ -f framebuffer-fbdev.txt ]]; then cat framebuffer-fbdev.txt; fi
+          if [[ -f framebuffer-fbdev.exitcode ]] && [[ "$(cat framebuffer-fbdev.exitcode)" != 0 ]]; then
+            exit "$(cat framebuffer-fbdev.exitcode)"
+          fi
       - name: Upload fbdev demo screenshot and stats
         id: demo-artifact
         if: always()
@@ -146,6 +169,7 @@ jobs:
           path: |
             framebuffer-fbdev.png
             framebuffer-fbdev.txt
+            framebuffer-fbdev.exitcode
           if-no-files-found: ignore
 
   freebsd:
@@ -171,9 +195,6 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
       - name: Download KMS demo output
         if: always() && needs.linux-kms.outputs.demo_artifact_url != ''
         uses: actions/download-artifact@v8
@@ -212,8 +233,13 @@ jobs:
           if ! compgen -G "$PREVIEW_DIR/*/framebuffer-*.png" > /dev/null; then
             exit 0
           fi
+          repository="$RUNNER_TEMP/framebuffer-preview-store"
+          mkdir -p "$repository"
+          cd "$repository"
+          git init
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://github.com/$GH_REPO.git"
           gh auth setup-git --hostname github.com
 
           for attempt in 1 2 3; do
@@ -309,7 +335,9 @@ jobs:
               return artifact ? `[Download screenshot](${artifact})` : '—';
             }
             const rows = variants.map(([variant, result, job]) => {
-              const status = labels[result] ?? `⏳ ${result}`;
+              const status = variant === 'FreeBSD framebuffer packages' && result === 'success'
+                ? 'Packages passed; hardware tests skipped (no device)'
+                : labels[result] ?? `⏳ ${result}`;
               const url = jobs.get(job) ?? `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
               const key = variant === 'Linux KMS (VKMS)' ? 'kms' : variant === 'Linux fbdev (vfb)' ? 'fbdev' : '';
               const stats = key ? demoStats(key) : 'Not run (no virtual device configured)';
