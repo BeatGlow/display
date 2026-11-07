@@ -275,21 +275,30 @@ func checkDisplayAPI(screen display.Display) error {
 	}
 
 	probe := screen.Bounds().Min
-	screen.Fill(color.RGBA{R: 19, G: 113, B: 227, A: 255})
-	if got := color.RGBAModel.Convert(screen.At(probe.X, probe.Y)).(color.RGBA); got != (color.RGBA{R: 19, G: 113, B: 227, A: 255}) {
-		return fmt.Errorf("Fill/At mismatch: got %#v", got)
+	fillColor := color.RGBA{R: 19, G: 113, B: 227, A: 255}
+	screen.Fill(fillColor)
+	if got, want := readRGBA(screen, probe), convertToDisplayRGBA(screen, fillColor); got != want {
+		return fmt.Errorf("Fill/At mismatch: got %#v, want %#v", got, want)
 	}
 	screen.Clear()
-	if got := color.RGBAModel.Convert(screen.At(probe.X, probe.Y)).(color.RGBA); got != (color.RGBA{A: 255}) {
-		return fmt.Errorf("Clear/At mismatch: got %#v", got)
+	if got, want := readRGBA(screen, probe), convertToDisplayRGBA(screen, color.Black); got != want {
+		return fmt.Errorf("Clear/At mismatch: got %#v, want %#v", got, want)
 	}
 	setColor := color.RGBA{R: 211, G: 47, B: 109, A: 255}
 	screen.Set(probe.X, probe.Y, setColor)
-	if got := color.RGBAModel.Convert(screen.At(probe.X, probe.Y)).(color.RGBA); got != setColor {
-		return fmt.Errorf("Set/At mismatch: got %#v, want %#v", got, setColor)
+	if got, want := readRGBA(screen, probe), convertToDisplayRGBA(screen, setColor); got != want {
+		return fmt.Errorf("Set/At mismatch: got %#v, want %#v", got, want)
 	}
 	screen.Clear()
 	return nil
+}
+
+func readRGBA(screen display.Display, point image.Point) color.RGBA {
+	return color.RGBAModel.Convert(screen.At(point.X, point.Y)).(color.RGBA)
+}
+
+func convertToDisplayRGBA(screen display.Display, c color.Color) color.RGBA {
+	return color.RGBAModel.Convert(screen.ColorModel().Convert(c)).(color.RGBA)
 }
 
 func loadLogo() (*image.Gray, error) {
