@@ -1,4 +1,4 @@
-// Command display-test-kms runs a visual and API check on a real DRM/KMS output.
+// Command display-test-framebuffer runs a visual and API check on a framebuffer output.
 package main
 
 import (
@@ -23,7 +23,9 @@ import (
 	"golang.org/x/image/math/fixed"
 
 	"github.com/BeatGlow/display"
-	"github.com/BeatGlow/display/kms"
+	"github.com/BeatGlow/display/framebuffer"
+	"github.com/BeatGlow/display/framebuffer/fbdev"
+	"github.com/BeatGlow/display/framebuffer/kms"
 )
 
 //go:embed assets/beatglow-gray4.png
@@ -37,18 +39,21 @@ var rotoBackgroundTime, rotoRingTime, rotoEqualizerTime, rotoLogoTime, rotoMarke
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, "display-test-kms:", err)
+		fmt.Fprintln(os.Stderr, "display-test-framebuffer:", err)
 		os.Exit(1)
 	}
 }
 
 func run() (err error) {
-	device := flag.String("device", "/dev/dri/card0", "DRM card path")
+	backend := flag.String("backend", "auto", "output backend: auto, kms, or fbdev")
+	kmsDevice := flag.String("kms-device", "/dev/dri/card0", "DRM card path")
+	fbdevDevice := flag.String("fbdev-device", "/dev/fb0", "Linux fbdev path")
 	connector := flag.String("connector", "", "connected output name, for example HDMI-A-1")
 	width := flag.Int("width", 0, "exact output mode width (default: preferred mode)")
 	height := flag.Int("height", 0, "exact output mode height (default: preferred mode)")
 	duration := flag.Duration("duration", 0, "run time; 0 runs until interrupted")
-	fps := flag.Int("fps", 60, "animation refresh rate (1-120 Hz; KMS syncs to vblank)")
+	fps := flag.Int("fps", 60, "animation refresh rate (1-120 Hz; KMS waits for vblank)")
+	screenshot := flag.String("screenshot", "", "write the final framebuffer image as a PNG")
 	flag.Parse()
 	if flag.NArg() != 0 {
 		return fmt.Errorf("unexpected arguments: %v", flag.Args())
@@ -63,20 +68,36 @@ func run() (err error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	screen, err := kms.Open(&kms.Config{
-		Device:    *device,
+	kmsConfig := &kms.Config{
+		Device:    *kmsDevice,
 		Connector: *connector,
 		Width:     *width,
 		Height:    *height,
-	})
+	}
+	var screen display.Display
+	switch *backend {
+	case "auto":
+		screen, err = framebuffer.Open(&framebuffer.Config{KMS: kmsConfig, FBDev: *fbdevDevice})
+	case "kms":
+		screen, err = kms.Open(kmsConfig)
+	case "fbdev":
+		screen, err = fbdev.Open(*fbdevDevice)
+	default:
+		return fmt.Errorf("unknown backend %q; choose auto, kms, or fbdev", *backend)
+	}
 	if err != nil {
 		return err
 	}
-	defer func() { err = errors.Join(err, screen.Close()) }()
+	defer func() {
+		if *screenshot != "" && err == nil {
+			err = errors.Join(err, saveScreenshot(screen, *screenshot))
+		}
+		err = errors.Join(err, screen.Close())
+	}()
 
 	bounds := screen.Bounds()
 	if bounds.Empty() {
-		return fmt.Errorf("KMS returned empty screen bounds %v", bounds)
+		return fmt.Errorf("framebuffer returned empty screen bounds %v", bounds)
 	}
 	logo, err := loadLogo()
 	if err != nil {
@@ -86,11 +107,11 @@ func run() (err error) {
 		return err
 	}
 
-	fmt.Printf("Testing %s on %s\n", screen, *device)
+	fmt.Printf("Testing %s (requested backend: %s)\n", screen, *backend)
 	fmt.Println("The color chart checks channel order and brightness; the final scene is a BeatGlow logo rotozoom.")
 	fmt.Println("Press Ctrl-C to stop and restore the previous display mode.")
 
-	// Exercise KMS display blanking before starting the visible test pattern.
+	// Exercise display visibility controls before starting the visible test pattern.
 	if err := screen.Show(false); err != nil {
 		return fmt.Errorf("turn display off: %w", err)
 	}
@@ -124,7 +145,7 @@ func run() (err error) {
 	defer func() {
 		elapsed := time.Since(started).Seconds()
 		if elapsed > 0 {
-			fmt.Printf("Completed %d vblank-synchronized frames in %.1fs (%.1f Hz); average draw %.1f ms, copy %.1f ms, refresh %.1f ms.\n",
+			fmt.Printf("Completed %d frames in %.1fs (%.1f Hz); average draw %.1f ms, copy %.1f ms, refresh %.1f ms.\n",
 				frames,
 				elapsed,
 				float64(frames)/elapsed,
@@ -189,12 +210,30 @@ func run() (err error) {
 		}
 		refreshStarted := time.Now()
 		if err := screen.Refresh(); err != nil {
-			return fmt.Errorf("refresh KMS output: %w", err)
+			return fmt.Errorf("refresh framebuffer output: %w", err)
 		}
 		refreshTime += time.Since(refreshStarted)
 		frames++
 		previousFrame = frameStarted
 	}
+}
+
+func saveScreenshot(screen display.Display, path string) error {
+	bounds := screen.Bounds()
+	preview := image.NewRGBA(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
+	draw.Draw(preview, preview.Bounds(), screen, bounds.Min, draw.Src)
+	file, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("create framebuffer screenshot %s: %w", path, err)
+	}
+	if err := png.Encode(file, preview); err != nil {
+		return errors.Join(fmt.Errorf("encode framebuffer screenshot %s: %w", path, err), file.Close())
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close framebuffer screenshot %s: %w", path, err)
+	}
+	fmt.Printf("Screenshot saved to %s\n", path)
+	return nil
 }
 
 func copyFrame(screen display.Display, frame *image.RGBA) error {
@@ -225,29 +264,41 @@ func checkDisplayAPI(screen display.Display) error {
 	if err := screen.SetRotation(display.NoRotation); err != nil {
 		return fmt.Errorf("set no rotation: %w", err)
 	}
-	if err := screen.SetContrast(128); !errors.Is(err, kms.ErrNotSupported) {
-		if err == nil {
-			return errors.New("SetContrast unexpectedly succeeded; expected ErrNotSupported")
-		}
-		return fmt.Errorf("SetContrast returned %v; expected ErrNotSupported", err)
+	if err := screen.SetContrast(128); err != nil && !errors.Is(err, kms.ErrNotSupported) {
+		return fmt.Errorf("set contrast: %w", err)
 	}
-	if err := screen.SetRotation(display.Rotate90); !errors.Is(err, kms.ErrNotSupported) {
-		if err == nil {
-			return errors.New("SetRotation(90) unexpectedly succeeded; expected ErrNotSupported")
-		}
-		return fmt.Errorf("SetRotation(90) returned %v; expected ErrNotSupported", err)
+	if err := screen.SetRotation(display.Rotate90); err != nil && !errors.Is(err, kms.ErrNotSupported) {
+		return fmt.Errorf("set 90-degree rotation: %w", err)
+	}
+	if err := screen.SetRotation(display.NoRotation); err != nil {
+		return fmt.Errorf("restore no rotation: %w", err)
 	}
 
 	probe := screen.Bounds().Min
-	screen.Fill(color.RGBA{R: 19, G: 113, B: 227, A: 255})
-	if got := color.RGBAModel.Convert(screen.At(probe.X, probe.Y)).(color.RGBA); got != (color.RGBA{R: 19, G: 113, B: 227, A: 255}) {
-		return fmt.Errorf("Fill/At mismatch: got %#v", got)
+	fillColor := color.RGBA{R: 19, G: 113, B: 227, A: 255}
+	screen.Fill(fillColor)
+	if got, want := readRGBA(screen, probe), convertToDisplayRGBA(screen, fillColor); got != want {
+		return fmt.Errorf("Fill/At mismatch: got %#v, want %#v", got, want)
 	}
 	screen.Clear()
-	if got := color.RGBAModel.Convert(screen.At(probe.X, probe.Y)).(color.RGBA); got != (color.RGBA{A: 255}) {
-		return fmt.Errorf("Clear/At mismatch: got %#v", got)
+	if got, want := readRGBA(screen, probe), convertToDisplayRGBA(screen, color.Black); got != want {
+		return fmt.Errorf("Clear/At mismatch: got %#v, want %#v", got, want)
 	}
+	setColor := color.RGBA{R: 211, G: 47, B: 109, A: 255}
+	screen.Set(probe.X, probe.Y, setColor)
+	if got, want := readRGBA(screen, probe), convertToDisplayRGBA(screen, setColor); got != want {
+		return fmt.Errorf("Set/At mismatch: got %#v, want %#v", got, want)
+	}
+	screen.Clear()
 	return nil
+}
+
+func readRGBA(screen display.Display, point image.Point) color.RGBA {
+	return color.RGBAModel.Convert(screen.At(point.X, point.Y)).(color.RGBA)
+}
+
+func convertToDisplayRGBA(screen display.Display, c color.Color) color.RGBA {
+	return color.RGBAModel.Convert(screen.ColorModel().Convert(c)).(color.RGBA)
 }
 
 func loadLogo() (*image.Gray, error) {

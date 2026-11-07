@@ -1,6 +1,6 @@
 # KMS display backend
 
-The `kms` package provides a Linux DRM/KMS display backend with connector and mode selection, double-buffered scanout, and vblank-synchronized page flips. Its pixel conversion path prepares the library's image formats for the display's scanout buffer using optimized CPU code.
+The `framebuffer/kms` package provides a DRM/KMS display backend on Linux and FreeBSD 15.1 amd64 with a compatible drm-kmod driver. It supports connector and mode selection, double-buffered scanout, and vblank-synchronized page flips. Its pixel conversion path prepares the library's image formats for the display's scanout buffer using optimized CPU code.
 
 ## Pixel conversion performance
 
