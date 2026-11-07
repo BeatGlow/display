@@ -13,10 +13,10 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/BeatGlow/display"
-	"github.com/BeatGlow/display/framebuffer/fbdev"
-	"github.com/BeatGlow/display/framebuffer/kms"
-	"github.com/BeatGlow/display/internal/ioctl"
+	"github.com/BeatGlow/display/v2"
+	"github.com/BeatGlow/display/v2/framebuffer/fbdev"
+	"github.com/BeatGlow/display/v2/framebuffer/kms"
+	"github.com/BeatGlow/display/v2/internal/ioctl"
 )
 
 func TestHardwareKMS(t *testing.T) {

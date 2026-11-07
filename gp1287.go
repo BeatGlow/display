@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/BeatGlow/display/pixel"
+	"github.com/BeatGlow/display/v2/pixel"
 )
 
 const (

@@ -14,9 +14,9 @@ import (
 	"periph.io/x/conn/v3/gpio/gpioreg"
 	"periph.io/x/host/v3"
 
-	"github.com/BeatGlow/display"
-	"github.com/BeatGlow/display/draw"
-	"github.com/BeatGlow/display/pixel"
+	"github.com/BeatGlow/display/v2"
+	"github.com/BeatGlow/display/v2/draw"
+	"github.com/BeatGlow/display/v2/pixel"
 )
 
 func main() {

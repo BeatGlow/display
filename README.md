@@ -1,8 +1,8 @@
 # Display
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/BeatGlow/display.svg)](https://pkg.go.dev/github.com/BeatGlow/display)
+[![Go Reference](https://pkg.go.dev/badge/github.com/BeatGlow/display/v2.svg)](https://pkg.go.dev/github.com/BeatGlow/display/v2)
 
-`github.com/BeatGlow/display` is a Go library for drawing to small OLED, LCD, and VFD displays. It brings hardware display drivers and Go's familiar image interfaces together, so application code can draw pixels, text, and shapes without being tied to one controller.
+`github.com/BeatGlow/display/v2` is a Go library for drawing to small OLED, LCD, and VFD displays. It brings hardware display drivers and Go's familiar image interfaces together, so application code can draw pixels, text, and shapes without being tied to one controller.
 
 ## What you can build with it
 
@@ -40,7 +40,7 @@ Reproduce with `go test . -run '^$' -bench 'Benchmark(SPITransferChunking|Displa
 
 ## Display controllers
 
-The package includes drivers for SSD1305, SSD1306, SSD1322, SSD1362, SH1106, SH1122, ST7735, ST7789, GU3000, GU256X64D-7000, GP1247AI, GP1287BI, and GP1294AI. Check the [Go package reference](https://pkg.go.dev/github.com/BeatGlow/display) for the current API and controller details.
+The package includes drivers for SSD1305, SSD1306, SSD1322, SSD1362, SH1106, SH1122, ST7735, ST7789, GU3000, GU256X64D-7000, GP1247AI, GP1287BI, and GP1294AI. Check the [Go package reference](https://pkg.go.dev/github.com/BeatGlow/display/v2) for the current API and controller details.
 
 ## A familiar drawing model
 
@@ -52,8 +52,8 @@ import (
 	"image/color"
 	"log"
 
-	"github.com/BeatGlow/display/draw"
-	"github.com/BeatGlow/display/framebuffer"
+	"github.com/BeatGlow/display/v2/draw"
+	"github.com/BeatGlow/display/v2/framebuffer"
 )
 
 func main() {
@@ -88,7 +88,7 @@ The KMS backend uses optimized CPU pixel conversion to prepare scanout buffers f
 ## Install
 
 ```sh
-go get github.com/BeatGlow/display
+go get github.com/BeatGlow/display/v2
 ```
 
 The library is distributed under the [MIT License](LICENSE.md).

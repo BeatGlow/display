@@ -6,8 +6,8 @@ import (
 	"image/color"
 	"testing"
 
-	"github.com/BeatGlow/display"
-	"github.com/BeatGlow/display/framebuffer/kms"
+	"github.com/BeatGlow/display/v2"
+	"github.com/BeatGlow/display/v2/framebuffer/kms"
 )
 
 type testDisplay struct{}

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/BeatGlow/display/internal/ioctl"
+	"github.com/BeatGlow/display/v2/internal/ioctl"
 )
 
 // Definitions from <spi/spidev.h>

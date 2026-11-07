@@ -7,7 +7,7 @@ import (
 	stdDraw "image/draw"
 	"testing"
 
-	"github.com/BeatGlow/display/pixel"
+	"github.com/BeatGlow/display/v2/pixel"
 )
 
 func TestFastDrawMatchesStandardAndOverlap(t *testing.T) {

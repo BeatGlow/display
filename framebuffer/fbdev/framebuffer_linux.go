@@ -10,8 +10,8 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/BeatGlow/display"
-	"github.com/BeatGlow/display/pixel"
+	"github.com/BeatGlow/display/v2"
+	"github.com/BeatGlow/display/v2/pixel"
 )
 
 const (

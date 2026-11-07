@@ -7,7 +7,7 @@ import (
 	"image/draw"
 	"reflect"
 
-	"github.com/BeatGlow/display/pixel"
+	"github.com/BeatGlow/display/v2/pixel"
 )
 
 // Drawer is an alias for [image/draw.Drawer].

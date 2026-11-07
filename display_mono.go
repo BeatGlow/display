@@ -1,7 +1,7 @@
 package display
 
 import (
-	"github.com/BeatGlow/display/pixel"
+	"github.com/BeatGlow/display/v2/pixel"
 )
 
 type monoDisplay struct {

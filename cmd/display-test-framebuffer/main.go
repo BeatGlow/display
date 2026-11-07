@@ -22,10 +22,10 @@ import (
 	"golang.org/x/image/font/basicfont"
 	"golang.org/x/image/math/fixed"
 
-	"github.com/BeatGlow/display"
-	"github.com/BeatGlow/display/framebuffer"
-	"github.com/BeatGlow/display/framebuffer/fbdev"
-	"github.com/BeatGlow/display/framebuffer/kms"
+	"github.com/BeatGlow/display/v2"
+	"github.com/BeatGlow/display/v2/framebuffer"
+	"github.com/BeatGlow/display/v2/framebuffer/fbdev"
+	"github.com/BeatGlow/display/v2/framebuffer/kms"
 )
 
 //go:embed assets/beatglow-gray4.png

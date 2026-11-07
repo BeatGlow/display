@@ -3,7 +3,7 @@ package display
 import (
 	"encoding/binary"
 
-	"github.com/BeatGlow/display/pixel"
+	"github.com/BeatGlow/display/v2/pixel"
 )
 
 type crgb15Display struct {

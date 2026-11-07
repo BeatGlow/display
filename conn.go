@@ -14,7 +14,7 @@ import (
 
 	"periph.io/x/host/v3"
 
-	"github.com/BeatGlow/display/conn"
+	"github.com/BeatGlow/display/v2/conn"
 )
 
 type InvalidPin struct {

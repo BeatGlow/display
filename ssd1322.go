@@ -7,8 +7,8 @@ import (
 
 	"periph.io/x/conn/v3/gpio"
 
-	"github.com/BeatGlow/display/conn"
-	"github.com/BeatGlow/display/pixel"
+	"github.com/BeatGlow/display/v2/conn"
+	"github.com/BeatGlow/display/v2/pixel"
 )
 
 const (

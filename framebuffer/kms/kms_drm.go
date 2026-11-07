@@ -16,9 +16,9 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/BeatGlow/display"
-	"github.com/BeatGlow/display/internal/buffer"
-	"github.com/BeatGlow/display/internal/ioctl"
+	"github.com/BeatGlow/display/v2"
+	"github.com/BeatGlow/display/v2/internal/buffer"
+	"github.com/BeatGlow/display/v2/internal/ioctl"
 )
 
 const (

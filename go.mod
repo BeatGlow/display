@@ -1,4 +1,4 @@
-module github.com/BeatGlow/display
+module github.com/BeatGlow/display/v2
 
 go 1.23.4
 

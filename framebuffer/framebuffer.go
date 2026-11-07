@@ -4,9 +4,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/BeatGlow/display"
-	"github.com/BeatGlow/display/framebuffer/fbdev"
-	"github.com/BeatGlow/display/framebuffer/kms"
+	"github.com/BeatGlow/display/v2"
+	"github.com/BeatGlow/display/v2/framebuffer/fbdev"
+	"github.com/BeatGlow/display/v2/framebuffer/kms"
 )
 
 // Config configures the framebuffer output backends. A nil KMS config uses the

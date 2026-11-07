@@ -8,7 +8,7 @@ import (
 	"image/draw"
 	"testing"
 
-	"github.com/BeatGlow/display/pixel"
+	"github.com/BeatGlow/display/v2/pixel"
 )
 
 func TestCopyToXRGBSupportsPixelImages(t *testing.T) {

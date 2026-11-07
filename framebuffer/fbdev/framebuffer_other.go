@@ -3,7 +3,7 @@
 package fbdev
 
 import (
-	"github.com/BeatGlow/display"
+	"github.com/BeatGlow/display/v2"
 )
 
 func Open(_ string) (display.Display, error) {

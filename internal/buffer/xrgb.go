@@ -6,7 +6,7 @@ import (
 	"errors"
 	"image"
 
-	"github.com/BeatGlow/display/pixel"
+	"github.com/BeatGlow/display/v2/pixel"
 )
 
 const xrgbBytesPerPixel = 4

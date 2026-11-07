@@ -4,7 +4,7 @@ import (
 	"image/color"
 	"testing"
 
-	"github.com/BeatGlow/display/pixel"
+	"github.com/BeatGlow/display/v2/pixel"
 )
 
 func BenchmarkDisplayFillCRGB16(b *testing.B) {
