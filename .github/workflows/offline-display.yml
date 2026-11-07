@@ -235,6 +235,7 @@ jobs:
         id: preview-app-token
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/create-github-app-token@v3.2.0
+        continue-on-error: true
         with:
           client-id: ${{ secrets.PREVIEW_APP_CLIENT_ID }}
           private-key: ${{ secrets.PREVIEW_APP_PRIVATE_KEY }}
