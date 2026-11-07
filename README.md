@@ -16,13 +16,27 @@
 
 ## Rendering benchmark highlights
 
-On an Apple M2, filling a 400×128 CRGB16 display buffer measured a 2.38 µs
-median versus 829 µs for per-pixel writes. A hardware-free SPI chunk-loop
-benchmark for a 102,400-byte frame measured 65.5 ns with 4,096-byte chunks
-(25 writes), 15.7 ns with 16,384-byte chunks (7 writes), and 2.1 ns for one
-write. It uses a no-op writer to isolate CPU-side chunking overhead; it excludes
-SPI driver and hardware transfer time. Reproduce with
-`go test . -run '^$' -bench '^BenchmarkSPITransferChunking$' -benchmem -benchtime=1s -count=3`. See the `pixel`, `draw`, and `framebuffer/kms` package READMEs for more details.
+Three-run medians for `baseDisplay.Fill` versus per-pixel writes on 400×128
+CRGB16 buffers:
+
+| Host | `Fill` | Per-pixel reference |
+| --- | ---: | ---: |
+| Raspberry Pi 3 | 44.4 µs | 20.39 ms |
+| Apple M2 | 2.38 µs | 829 µs |
+| AMD Ryzen 9 7900 | 2.42 µs | 481 µs |
+| Intel N100 | 4.38 µs | 1.02 ms |
+
+A no-op SPI writer isolates chunk-loop overhead for a 102,400-byte payload; it
+excludes SPI driver and hardware transfer time:
+
+| Host | 4,096-byte chunks (25 writes) | 16,384-byte chunks (7 writes) | One write |
+| --- | ---: | ---: | ---: |
+| Raspberry Pi 3 | 1.85 µs | 563 ns | 45.8 ns |
+| Apple M2 | 65.5 ns | 15.7 ns | 2.1 ns |
+| AMD Ryzen 9 7900 | 44.8 ns | 13.5 ns | 1.34 ns |
+| Intel N100 | 119.5 ns | 30.4 ns | 2.72 ns |
+
+Reproduce with `go test . -run '^$' -bench 'Benchmark(SPITransferChunking|DisplayFillCRGB16)$' -benchmem -benchtime=1s -count=3`. See the `pixel`, `draw`, and `framebuffer/kms` package READMEs for conversion results and benchmark commands.
 
 ## Display controllers
 
