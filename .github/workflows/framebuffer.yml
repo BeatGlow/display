@@ -128,3 +128,68 @@ jobs:
           arch: x86_64
           prepare: pkg install -y go
           run: CGO_ENABLED=0 go test -v ./framebuffer/...
+
+  report:
+    name: framebuffer results
+    needs: [linux-kms, linux-fbdev, freebsd]
+    if: ${{ always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Comment framebuffer results
+        uses: actions/github-script@v9
+        env:
+          KMS_RESULT: ${{ needs.linux-kms.result }}
+          FBDEV_RESULT: ${{ needs.linux-fbdev.result }}
+          FREEBSD_RESULT: ${{ needs.freebsd.result }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const marker = '<!-- framebuffer-ci-results -->';
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number, per_page: 100,
+            });
+            const previous = comments.filter(comment =>
+              ['github-actions[bot]', 'github-actions'].includes(comment.user?.login) &&
+              comment.body?.includes(marker),
+            );
+            for (const comment of previous) {
+              await github.rest.issues.deleteComment({ owner, repo, comment_id: comment.id });
+            }
+
+            const jobsResponse = await github.rest.actions.listJobsForWorkflowRun({
+              owner, repo, run_id: context.runId, per_page: 100,
+            });
+            const jobs = new Map(jobsResponse.data.jobs.map(job => [job.name, job.html_url]));
+            const variants = [
+              ['Linux KMS (VKMS)', process.env.KMS_RESULT, 'framebuffer (Linux VKMS)'],
+              ['Linux fbdev (vfb)', process.env.FBDEV_RESULT, 'framebuffer (Linux vfb)'],
+              ['FreeBSD framebuffer packages', process.env.FREEBSD_RESULT, 'framebuffer (FreeBSD 15.1 amd64)'],
+            ];
+            const labels = {
+              success: '✅ Passed',
+              failure: '❌ Failed',
+              cancelled: '⚪ Cancelled',
+              skipped: '➖ Skipped',
+            };
+            const rows = variants.map(([variant, result, job]) => {
+              const status = labels[result] ?? `⏳ ${result}`;
+              const url = jobs.get(job) ?? `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
+              return `| ${variant} | ${status} | [${job}](${url}) |`;
+            });
+            const shortSha = process.env.HEAD_SHA.slice(0, 7);
+            const body = [
+              marker,
+              '## Framebuffer CI results',
+              '',
+              '| Variant | Result | CI job |',
+              '| --- | --- | --- |',
+              ...rows,
+              '',
+              `Commit: [\`${shortSha}\`](https://github.com/${owner}/${repo}/commit/${process.env.HEAD_SHA}).`,
+            ].join('\n');
+            await github.rest.issues.createComment({ owner, repo, issue_number, body });
