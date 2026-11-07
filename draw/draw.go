@@ -191,4 +191,10 @@ func rgbaWord(format pixel.PixelFormat, red, green, blue byte) uint16 {
 	}
 }
 
-func sameOrder(a, b binary.ByteOrder) bool { return a == b }
+func sameOrder(a, b binary.ByteOrder) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	t := reflect.TypeOf(a)
+	return t == reflect.TypeOf(b) && t.Comparable() && a == b
+}
