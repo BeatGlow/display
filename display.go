@@ -7,8 +7,6 @@ import (
 	"image/draw"
 
 	"periph.io/x/conn/v3/gpio"
-
-	"github.com/BeatGlow/display/pixel"
 )
 
 // Errors
@@ -125,23 +123,15 @@ func (d *baseDisplay) Clear() {
 }
 
 func (d *baseDisplay) Fill(c color.Color) {
-	switch i := d.Image.(type) {
-	case *pixel.MonoImage:
+	if i, ok := d.Image.(interface{ Fill(color.Color) }); ok {
 		i.Fill(c)
-	case *pixel.Gray2Image:
-		i.Fill(c)
-	case *pixel.Gray4Image:
-		i.Fill(c)
-	case *pixel.CRGB15Image:
-		i.Fill(c)
-	case *pixel.CRGB16Image:
-		i.Fill(c)
-	default:
-		r := i.Bounds()
-		for y := r.Min.Y; y < r.Max.Y; y++ {
-			for x := r.Min.X; x < r.Max.X; x++ {
-				i.Set(x, y, c)
-			}
+		return
+	}
+	i := d.Image
+	r := i.Bounds()
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		for x := r.Min.X; x < r.Max.X; x++ {
+			i.Set(x, y, c)
 		}
 	}
 }

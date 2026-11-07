@@ -12,6 +12,31 @@
 - Build compact interfaces with the widget, font, and menu packages.
 - Select a Linux DRM/KMS or fbdev display through `framebuffer`, or open a backend directly from its subpackage.
 - Drive Linux and FreeBSD 15.1 amd64 displays through DRM/KMS, with connector and mode selection plus vblank-synchronized page flips.
+- Optimized 16-bit image blits, solid spans, RGBA copies, and pixel-buffer fills.
+
+## Rendering benchmark highlights
+
+Three-run medians for `baseDisplay.Fill` versus per-pixel writes on 400×128
+CRGB16 buffers:
+
+| Host | `Fill` | Per-pixel reference |
+| --- | ---: | ---: |
+| Raspberry Pi 3 | 44.4 µs | 20.39 ms |
+| Apple M2 | 2.38 µs | 829 µs |
+| AMD Ryzen 9 7900 | 2.42 µs | 481 µs |
+| Intel N100 | 4.38 µs | 1.02 ms |
+
+A no-op SPI writer isolates chunk-loop overhead for a 102,400-byte payload; it
+excludes SPI driver and hardware transfer time:
+
+| Host | 4,096-byte chunks (25 writes) | 16,384-byte chunks (7 writes) | One write |
+| --- | ---: | ---: | ---: |
+| Raspberry Pi 3 | 1.85 µs | 563 ns | 45.8 ns |
+| Apple M2 | 65.5 ns | 15.7 ns | 2.1 ns |
+| AMD Ryzen 9 7900 | 44.8 ns | 13.5 ns | 1.34 ns |
+| Intel N100 | 119.5 ns | 30.4 ns | 2.72 ns |
+
+Reproduce with `go test . -run '^$' -bench 'Benchmark(SPITransferChunking|DisplayFillCRGB16)$' -benchmem -benchtime=1s -count=3`. See the `pixel`, `draw`, and `framebuffer/kms` package READMEs for conversion results and benchmark commands.
 
 ## Display controllers
 
