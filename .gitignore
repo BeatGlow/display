@@ -27,8 +27,8 @@
 # ...even if they are in subdirectories
 !*/
 !/cmd/
-!/cmd/display-test-kms/
-!/cmd/display-test-kms/assets/
-!/cmd/display-test-kms/assets/*
+!/cmd/display-test-framebuffer/
+!/cmd/display-test-framebuffer/assets/
+!/cmd/display-test-framebuffer/assets/*
 !/internal/
 !/internal/buffer/
