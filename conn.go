@@ -12,9 +12,9 @@ import (
 	"periph.io/x/conn/v3/uart"
 	"periph.io/x/conn/v3/uart/uartreg"
 
-	"github.com/BeatGlow/display/conn"
 	"periph.io/x/host/v3"
-	_ "periph.io/x/host/v3/serial"
+
+	"github.com/BeatGlow/display/conn"
 )
 
 type InvalidPin struct {

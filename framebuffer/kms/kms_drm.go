@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux || freebsd
 
 package kms
 
@@ -22,8 +22,8 @@ import (
 )
 
 const (
-	drmIOSetMaster  = 0x641e
-	drmIODropMaster = 0x641f
+	drmIOSetMaster  = 0x1e
+	drmIODropMaster = 0x1f
 	// DRM ioctl numbers combine type 'd' (0x64) with the command number.
 	drmModeGetResources = 0x64A0
 	drmModeGetCRTC      = 0x64A1
@@ -81,7 +81,7 @@ func Open(config *Config) (display.Display, error) {
 		return nil, fmt.Errorf("kms: open %s: %w", device, err)
 	}
 	d := &displayDevice{file: f}
-	if err = ioctl.Call(f.Fd(), drmIOSetMaster, 0); err != nil {
+	if err = ioctl.Call(f.Fd(), uintptr(ioctl.Encode(ioctl.None, 0, 0x6400|drmIOSetMaster)), 0); err != nil {
 		_ = f.Close()
 		return nil, fmt.Errorf("kms: acquire DRM master: %w", err)
 	}
@@ -413,14 +413,14 @@ func (d *displayDevice) destroyBuffer(b *scanoutBuffer) error {
 		b.pix = nil
 	}
 	if b.fbID != 0 {
-		if err := ioctl.Do(d.file.Fd(), ioctl.Pointer(ioctl.Write, &b.fbID, drmModeRMFB), &b.fbID); err != nil && first == nil {
+		if err := ioctl.Do(d.file.Fd(), ioctl.Pointer(ioctl.Read|ioctl.Write, &b.fbID, drmModeRMFB), &b.fbID); err != nil && first == nil {
 			first = err
 		}
 		b.fbID = 0
 	}
 	if b.handle != 0 {
 		request := dumbDestroy{handle: b.handle}
-		if err := ioctl.Do(d.file.Fd(), ioctl.Pointer(ioctl.Write, &request, drmModeDestroyDumb), &request); err != nil && first == nil {
+		if err := ioctl.Do(d.file.Fd(), ioctl.Pointer(ioctl.Read|ioctl.Write, &request, drmModeDestroyDumb), &request); err != nil && first == nil {
 			first = err
 		}
 		b.handle = 0
@@ -552,7 +552,7 @@ func (d *displayDevice) Close() error {
 		}
 	}
 	if d.master {
-		if err := ioctl.Call(d.file.Fd(), drmIODropMaster, 0); err != nil && first == nil {
+		if err := ioctl.Call(d.file.Fd(), uintptr(ioctl.Encode(ioctl.None, 0, 0x6400|drmIODropMaster)), 0); err != nil && first == nil {
 			first = err
 		}
 		d.master = false

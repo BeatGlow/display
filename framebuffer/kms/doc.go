@@ -1,4 +1,5 @@
-// Package kms provides a Linux DRM/KMS display backed by a dumb scanout buffer.
+// Package kms provides a DRM/KMS display backed by dumb scanout buffers on Linux
+// and FreeBSD 15.1 amd64 with a compatible drm-kmod driver.
 //
 // It requires a connected DRM/KMS output and permission to become DRM master.
 // Refresh copies pixels into a back buffer and waits for a vblank page flip, so

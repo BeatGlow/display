@@ -11,7 +11,7 @@
 - Compose graphics with pixel formats and drawing helpers designed for small displays.
 - Build compact interfaces with the widget, font, and menu packages.
 - Select a Linux DRM/KMS or fbdev display through `framebuffer`, or open a backend directly from its subpackage.
-- Drive Linux and FreeBSD displays through DRM/KMS, with connector and mode selection plus vblank-synchronized page flips.
+- Drive Linux and FreeBSD 15.1 amd64 displays through DRM/KMS, with connector and mode selection plus vblank-synchronized page flips.
 
 ## Display controllers
 
@@ -48,7 +48,7 @@ Once rendered, a display's `Refresh` method sends its image buffer to the panel.
 | `ui` and `ui/font` | Widgets, styles, themes, and text rendering |
 | `framebuffer` | Automatic Linux/FreeBSD DRM/KMS and Linux fbdev selection |
 | `framebuffer/fbdev` | Linux fbdev output |
-| `framebuffer/kms` | Linux and FreeBSD DRM/KMS output |
+| `framebuffer/kms` | Linux and FreeBSD 15.1 amd64 DRM/KMS output |
 
 The KMS backend uses optimized CPU pixel conversion to prepare scanout buffers from the library's image formats. See the [`framebuffer/kms` package README](framebuffer/kms/README.md) for benchmarks and end-to-end performance results.
 

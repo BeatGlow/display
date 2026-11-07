@@ -23,7 +23,7 @@ import (
 	"golang.org/x/image/math/fixed"
 
 	"github.com/BeatGlow/display"
-	"github.com/BeatGlow/display/kms"
+	"github.com/BeatGlow/display/framebuffer/kms"
 )
 
 //go:embed assets/beatglow-gray4.png
