@@ -27,7 +27,7 @@ permissions:
 jobs:
   linux-kms:
     name: framebuffer (Linux VKMS)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v5
       - name: Enable VKMS
@@ -69,7 +69,7 @@ jobs:
 
   linux-fbdev:
     name: framebuffer (Linux vfb)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v5
       - name: Enable vfb
