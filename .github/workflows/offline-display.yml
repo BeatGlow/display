@@ -36,6 +36,7 @@ jobs:
           fi
 
           all_drivers=0
+          main_dispatch_changed=0
           drivers=()
           if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
             all_drivers=1
@@ -50,6 +51,9 @@ jobs:
                     drivers+=("${driver%.go}")
                   fi
                   ;;
+                cmd/display-test/main.go)
+                  main_dispatch_changed=1
+                  ;;
                 *.go)
                   source="${path%.go}"
                   driver="$source"
@@ -63,6 +67,41 @@ jobs:
                 *) all_drivers=1 ;;
               esac
             done < <(git diff --name-only "$base" "$GITHUB_SHA")
+          fi
+
+          if [[ "$main_dispatch_changed" == "1" ]]; then
+            mapfile -t main_changes < <(git diff --unified=0 "$base" "$GITHUB_SHA" -- cmd/display-test/main.go | grep -E '^[+-][^+-]')
+            valid_driver_dispatch=1
+            dispatch_case_count=0
+            dispatch_call_count=0
+            if [[ ${#main_changes[@]} -ne 2 ]]; then
+              valid_driver_dispatch=0
+            else
+              for change in "${main_changes[@]}"; do
+                if [[ "$change" =~ ^\+[[:space:]]*case\ \"([a-z0-9]+)\":$ ]]; then
+                  case_driver="${BASH_REMATCH[1]}"
+                  matched_driver=0
+                  for driver in "${drivers[@]}"; do
+                    if [[ "$driver" == "$case_driver" ]]; then matched_driver=1; fi
+                  done
+                  if [[ "$matched_driver" == "1" ]]; then
+                    dispatch_case_count=$((dispatch_case_count + 1))
+                  else
+                    valid_driver_dispatch=0
+                  fi
+                elif [[ "$change" =~ ^\+[[:space:]]*output,\ err\ =\ display\.[A-Za-z0-9_]+\(conn,\ config\)$ ]]; then
+                  dispatch_call_count=$((dispatch_call_count + 1))
+                else
+                  valid_driver_dispatch=0
+                fi
+              done
+            fi
+            if [[ "$dispatch_case_count" -ne 1 || "$dispatch_call_count" -ne 1 ]]; then
+              valid_driver_dispatch=0
+            fi
+            if [[ "$valid_driver_dispatch" != "1" ]]; then
+              all_drivers=1
+            fi
           fi
 
           if [[ ${#drivers[@]} -gt 0 ]]; then
