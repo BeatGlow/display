@@ -42,6 +42,19 @@ for driver in gu3000 gp1247ai gu256x64d7000 gp1278 gp1294 sh1106 ssd1305 ssd1306
 done
 ```
 
+## KMS performance
+
+Single-goroutine Go benchmarks for RGBA-to-XRGB8888 conversion at 400×1280:
+
+| Test system | SIMD | SIMD time | Scalar time | Gain |
+| --- | --- | ---: | ---: | ---: |
+| Raspberry Pi 3, Linux ARM64 | NEON | 2.61 ms | 19.23 ms | 7.4× |
+| Apple M2, macOS ARM64 | NEON | 60.4 µs | 991 µs | 16.4× |
+| AMD Ryzen 9 7900, Linux x86_64 | SSE2 | 59.9 µs | 712 µs | 11.9× |
+| Intel N100, Linux x86_64 | SSE2 | 131 µs | 1.52 ms | 11.6× |
+
+The KMS demo also sustained about 51 FPS on the Pi 3 at 400×1280 with a 60 FPS target. This end-to-end figure includes rendering, scanout conversion, and synchronized page flips.
+
 ## GU256X64D-7000 VFD
 
 The GU256X64D-7000 driver uses the same API for the module's 8-bit parallel
