@@ -471,7 +471,7 @@ func OpenParallel(config *ParallelConfig) (Conn, error) {
 	if !isValidPin(config.D1) {
 		return nil, InvalidPin{"D1"}
 	}
-	if !isValidPin(config.D0) {
+	if !isValidPin(config.D2) {
 		return nil, InvalidPin{"D2"}
 	}
 	if !isValidPin(config.D3) {

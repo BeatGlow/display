@@ -164,8 +164,12 @@ func (d *sh1122) Refresh() (err error) {
 	); err != nil {
 		return
 	}
-	for i, l := 0, len(pix); i < l; i += 4096 {
-		if err = d.data(pix[i : i+4096]...); err != nil {
+	for i := 0; i < len(pix); i += 4096 {
+		end := i + 4096
+		if end > len(pix) {
+			end = len(pix)
+		}
+		if err = d.data(pix[i:end]...); err != nil {
 			return
 		}
 	}

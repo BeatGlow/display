@@ -78,7 +78,7 @@ func (d *gu3000) SetContrast(level uint8) error {
 func (d *gu3000) Refresh() error {
 	size := uint16(d.width) * uint16(d.height) / 8
 	if err := d.Command(gu3000BitImageWrite, 0x00, 0x00, byte(size&0xff), byte(size>>8)); err != nil {
-		return nil
+		return err
 	}
 	return d.c.Data(d.Image.(*pixel.MonoVerticalLSBImage).Pix...)
 }
