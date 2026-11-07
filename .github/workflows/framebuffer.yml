@@ -1,4 +1,4 @@
-name: display package tests
+name: framebuffer
 
 on:
   push:
@@ -25,19 +25,8 @@ permissions:
   contents: read
 
 jobs:
-  pixel:
-    name: pixel tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-      - name: Test pixel package
-        run: go test ./pixel/...
-
-  test:
-    name: framebuffer tests (${{ matrix.os }})
+  framebuffer:
+    name: framebuffer (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
