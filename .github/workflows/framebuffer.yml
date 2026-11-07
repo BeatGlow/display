@@ -37,16 +37,14 @@ jobs:
         run: go test ./framebuffer/...
 
   freebsd:
-    name: framebuffer (FreeBSD amd64 compile)
+    name: framebuffer (FreeBSD 15.1 amd64)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - name: Test framebuffer packages on FreeBSD
+        uses: vmactions/freebsd-vm@v1
         with:
-          go-version-file: go.mod
-      - name: Cross-compile FreeBSD framebuffer tests
-        env:
-          CGO_ENABLED: 0
-          GOOS: freebsd
-          GOARCH: amd64
-        run: go test -exec /usr/bin/true ./framebuffer/...
+          release: '15.1'
+          arch: x86_64
+          prepare: pkg install -y go
+          run: CGO_ENABLED=0 go test ./framebuffer/...
