@@ -34,7 +34,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Test framebuffer packages
-        run: go test ./framebuffer/...
+        run: go test -v ./framebuffer/...
 
   freebsd:
     name: framebuffer (FreeBSD 15.1 amd64)
@@ -47,4 +47,4 @@ jobs:
           release: '15.1'
           arch: x86_64
           prepare: pkg install -y go
-          run: CGO_ENABLED=0 go test ./framebuffer/...
+          run: CGO_ENABLED=0 go test -v ./framebuffer/...
