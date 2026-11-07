@@ -138,6 +138,8 @@ func main() {
 		output, err = display.SSD1306(conn, config)
 	case "ssd1322":
 		output, err = display.SSD1322(conn, config)
+	case "ssd1362":
+		output, err = display.SSD1362(conn, config)
 	case "sh1122":
 		output, err = display.SH1122(conn, config)
 	case "gp1278", "gp1287":
