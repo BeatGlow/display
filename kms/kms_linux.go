@@ -594,7 +594,7 @@ type modeConnector struct {
 }
 
 type modeEncoder struct {
-	encoderID, _, crtcID, possibleCRTCs, possibleClones uint32
+	encoderID, _, crtcID, possibleCRTCs, _ uint32
 }
 
 type modeCRTC struct {
@@ -611,9 +611,9 @@ type modeInfo struct {
 	_, _, _, _ uint16
 	vDisplay   uint16
 	_          uint16
-	vSyncEnd   uint16
-	vTotal     uint16
-	vScan      uint16
+	_          uint16
+	_          uint16
+	_          uint16
 	_, _       uint32
 	typ        uint32
 	_          [32]byte
