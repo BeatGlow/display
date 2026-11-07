@@ -54,6 +54,10 @@ jobs:
                 cmd/display-test/main.go)
                   main_dispatch_changed=1
                   ;;
+                *_test.go)
+                  # Go test files run through the package-scoped test workflow.
+                  continue
+                  ;;
                 *.go)
                   source="${path%.go}"
                   driver="$source"
