@@ -1,0 +1,75 @@
+name: go-test
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - '.github/workflows/go-test.yml'
+      - '**.go'
+      - '**.s'
+      - 'go.mod'
+      - 'go.sum'
+  pull_request:
+    paths:
+      - '.github/workflows/go-test.yml'
+      - '**.go'
+      - '**.s'
+      - 'go.mod'
+      - 'go.sum'
+
+permissions:
+  contents: read
+
+jobs:
+  go-test:
+    name: go-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Test changed Go packages
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            echo 'No base revision available; testing all Go packages.'
+            go test ./...
+            exit
+          fi
+
+          mapfile -t changed_files < <(git diff --name-only "$BASE_SHA" "$GITHUB_SHA")
+          test_all=0
+          packages=()
+          for path in "${changed_files[@]}"; do
+            case "$path" in
+              go.mod|go.sum)
+                test_all=1
+                ;;
+              *.go|*.s)
+                directory="$(dirname "$path")"
+                if [[ "$directory" == "." ]]; then
+                  packages+=(.)
+                elif [[ -d "$directory" ]] && compgen -G "$directory/*.go" > /dev/null; then
+                  packages+=("./$directory")
+                fi
+                ;;
+            esac
+          done
+
+          if [[ "$test_all" == "1" ]]; then
+            go test ./...
+          elif [[ ${#packages[@]} -eq 0 ]]; then
+            echo 'No Go source, test, or assembly files changed; skipping Go tests.'
+          else
+            mapfile -t packages < <(printf '%s\n' "${packages[@]}" | sort -u)
+            printf 'Testing changed packages: %s\n' "${packages[*]}"
+            go test "${packages[@]}"
+          fi

@@ -195,7 +195,7 @@ func decodeFrame(driver string, frame image.Image, encoded []byte) (*image.RGBA,
 		for y := range h {
 			for x := range w {
 				v := (encoded[y*stride+x/4] >> uint((3-x%4)*2)) & 3
-				gray := v * 0x55
+				gray := v * 0x44
 				decoded.SetRGBA(x, y, color.RGBA{R: gray, G: gray, B: gray, A: 0xff})
 			}
 		}

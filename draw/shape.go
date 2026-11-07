@@ -22,14 +22,21 @@ func VerticalLine(dst Image, x, y, h int, c color.Color) {
 
 // Rectangle draws a rectangle.
 func Rectangle(dst Image, rect image.Rectangle, c color.Color) {
+	if rect.Empty() {
+		return
+	}
 	var (
 		w = rect.Dx()
 		h = rect.Dy()
 	)
-	HorizontalLine(dst, rect.Min.X, rect.Min.Y, w, c) // top
-	HorizontalLine(dst, rect.Min.X, rect.Max.Y, w, c) // bottom
-	VerticalLine(dst, rect.Min.X, rect.Min.Y, h, c)   // left
-	VerticalLine(dst, rect.Max.X, rect.Min.Y, h, c)   // right
+	HorizontalLine(dst, rect.Min.X, rect.Min.Y, w, c)   // top
+	HorizontalLine(dst, rect.Min.X, rect.Max.Y-1, w, c) // bottom
+	if h > 2 {
+		VerticalLine(dst, rect.Min.X, rect.Min.Y+1, h-2, c) // left
+		if w > 1 {
+			VerticalLine(dst, rect.Max.X-1, rect.Min.Y+1, h-2, c) // right
+		}
+	}
 }
 
 // RoundedRectangle draws a rectangle with radius pixels rounded corners.

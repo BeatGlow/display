@@ -46,7 +46,7 @@ jobs:
                 cmd/display-test/offline_*.go)
                   if [[ "$path" == "cmd/display-test/offline_test.go" ]]; then
                     all_drivers=1
-                  else
+                elif [[ "$path" != *_test.go ]]; then
                     driver="${path##*/offline_}"
                     drivers+=("${driver%.go}")
                   fi
@@ -107,11 +107,11 @@ jobs:
           if [[ ${#drivers[@]} -gt 0 ]]; then
             mapfile -t drivers < <(printf '%s\n' "${drivers[@]}" | sort -u)
           fi
-          if [[ "$all_drivers" == "1" || ${#drivers[@]} == 0 ]]; then
+          if [[ "$all_drivers" == "1" ]]; then
             all_drivers=1
             drivers=()
             for settings in cmd/display-test/offline_*.go; do
-              [[ "$settings" == "cmd/display-test/offline_test.go" ]] && continue
+              [[ "$settings" == *_test.go ]] && continue
               driver="${settings##*/offline_}"
               drivers+=("${driver%.go}")
             done
@@ -171,6 +171,7 @@ jobs:
 
   offline-driver:
     needs: select-drivers
+    if: needs.select-drivers.outputs.drivers != '[]'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
