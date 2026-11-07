@@ -576,7 +576,7 @@ type cardResources struct{ crtcIDs, connectorIDs []uint32 }
 type modeResources struct {
 	fbPtr, crtcPtr, connectorPtr, encoderPtr             uint64
 	countFBs, countCRTCs, countConnectors, countEncoders uint32
-	minWidth, minHeight, maxWidth, maxHeight             uint32
+	_, _, _, _                                           uint32
 }
 
 type connectorInfo struct {
@@ -590,41 +590,52 @@ type modeConnector struct {
 	encodersPtr, modesPtr, propsPtr, propValuesPtr          uint64
 	countModes, countProps, countEncoders, encoderID        uint32
 	connectorID, connectorType, connectorTypeID, connection uint32
-	mmWidth, mmHeight, subpixel, pad                        uint32
+	_, _, _, _                                              uint32
 }
 
 type modeEncoder struct {
-	encoderID, encoderType, crtcID, possibleCRTCs, possibleClones uint32
+	encoderID, _, crtcID, possibleCRTCs, possibleClones uint32
 }
 
 type modeCRTC struct {
-	connectorPtr                                              uint64
-	countConnectors, crtcID, fbID, x, y, gammaSize, modeValid uint32
-	mode                                                      modeInfo
+	connectorPtr                        uint64
+	countConnectors, crtcID, fbID, x, y uint32
+	_                                   uint32
+	modeValid                           uint32
+	mode                                modeInfo
 }
 
 type modeInfo struct {
-	clock                                         uint32
-	hDisplay, hSyncStart, hSyncEnd, hTotal, hSkew uint16
-	vDisplay, vSyncStart, vSyncEnd, vTotal, vScan uint16
-	vRefresh, flags, typ                          uint32
-	name                                          [32]byte
+	_          uint32
+	hDisplay   uint16
+	_, _, _, _ uint16
+	vDisplay   uint16
+	_          uint16
+	vSyncEnd   uint16
+	vTotal     uint16
+	vScan      uint16
+	_, _       uint32
+	typ        uint32
+	_          [32]byte
 }
 
 type dumbBuffer struct {
-	height, width, bpp, flags uint32
-	handle, pitch             uint32
-	size                      uint64
+	height, width, bpp uint32
+	_                  uint32
+	handle, pitch      uint32
+	size               uint64
 }
 type dumbMap struct {
-	handle, pad uint32
-	offset      uint64
+	handle uint32
+	_      uint32
+	offset uint64
 }
 type dumbDestroy struct{ handle uint32 }
 type framebufferAdd struct{ fbID, width, height, pitch, bpp, depth, handle uint32 }
 type pageFlip struct {
-	crtcID, fbID, flags, reserved uint32
-	userData                      uint64
+	crtcID, fbID, flags uint32
+	_                   uint32
+	_                   uint64
 }
 
 func connectorName(typ, id uint32) string {
