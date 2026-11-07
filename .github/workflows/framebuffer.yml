@@ -1,0 +1,41 @@
+name: framebuffer
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - '.github/workflows/framebuffer.yml'
+      - 'framebuffer/**'
+      - 'pixel/**'
+      - '*.go'
+      - 'go.mod'
+      - 'go.sum'
+  pull_request:
+    paths:
+      - '.github/workflows/framebuffer.yml'
+      - 'framebuffer/**'
+      - 'pixel/**'
+      - '*.go'
+      - 'go.mod'
+      - 'go.sum'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: framebuffer tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Test framebuffer packages
+        run: go test ./framebuffer/...
