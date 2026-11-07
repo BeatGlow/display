@@ -1,0 +1,35 @@
+name: go-test
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - '.github/workflows/go-test.yml'
+      - '**.go'
+      - '**.s'
+      - 'go.mod'
+      - 'go.sum'
+  pull_request:
+    paths:
+      - '.github/workflows/go-test.yml'
+      - '**.go'
+      - '**.s'
+      - 'go.mod'
+      - 'go.sum'
+
+permissions:
+  contents: read
+
+jobs:
+  go-test:
+    name: go-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Test all Go packages
+        run: go test ./...
