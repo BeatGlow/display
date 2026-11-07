@@ -19,7 +19,8 @@ import (
 )
 
 func TestHardwareKMS(t *testing.T) {
-	screen := openHardwareDisplay(t, "/dev/dri/card0", func(path string) (display.Display, error) {
+	path := hardwareDevicePath("DISPLAY_TEST_KMS_DEVICE", "/dev/dri/card0")
+	screen := openHardwareDisplay(t, path, func(path string) (display.Display, error) {
 		return kms.Open(&kms.Config{Device: path})
 	}, func(err error) bool {
 		return errors.Is(err, kms.ErrNotSupported) || errors.Is(err, kms.ErrNoConnector) ||
@@ -31,7 +32,8 @@ func TestHardwareKMS(t *testing.T) {
 }
 
 func TestHardwareFBDev(t *testing.T) {
-	screen := openHardwareDisplay(t, "/dev/fb0", func(path string) (display.Display, error) {
+	path := hardwareDevicePath("DISPLAY_TEST_FBDEV_DEVICE", "/dev/fb0")
+	screen := openHardwareDisplay(t, path, func(path string) (display.Display, error) {
 		return fbdev.Open(path)
 	}, func(err error) bool {
 		return errors.Is(err, fbdev.ErrNotSupported) || errors.Is(err, fs.ErrPermission) ||
@@ -40,11 +42,18 @@ func TestHardwareFBDev(t *testing.T) {
 	testDisplayFunctions(t, screen)
 }
 
+func hardwareDevicePath(variable, fallback string) string {
+	if path := os.Getenv(variable); path != "" {
+		return path
+	}
+	return fallback
+}
+
 func openHardwareDisplay(t *testing.T, path string, open func(string) (display.Display, error), unavailable func(error) bool) display.Display {
 	t.Helper()
 	device, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
-		t.Skipf("hardware device %s is unavailable: %v", path, err)
+		skipOrFailUnavailableHardware(t, "hardware device %s is unavailable: %v", path, err)
 	}
 	if err := device.Close(); err != nil {
 		t.Fatalf("close hardware device probe %s: %v", path, err)
@@ -53,11 +62,19 @@ func openHardwareDisplay(t *testing.T, path string, open func(string) (display.D
 	screen, err := open(path)
 	if err != nil {
 		if unavailable(err) {
-			t.Skipf("no usable display at %s: %v", path, err)
+			skipOrFailUnavailableHardware(t, "no usable display at %s: %v", path, err)
 		}
 		t.Fatalf("open display at %s: %v", path, err)
 	}
 	return screen
+}
+
+func skipOrFailUnavailableHardware(t *testing.T, format string, args ...any) {
+	t.Helper()
+	if os.Getenv("DISPLAY_TEST_REQUIRE_HARDWARE") == "1" {
+		t.Fatalf(format, args...)
+	}
+	t.Skipf(format, args...)
 }
 
 func testDisplayFunctions(t *testing.T, screen display.Display) {

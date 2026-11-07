@@ -26,15 +26,57 @@ permissions:
 
 jobs:
   framebuffer:
-    name: framebuffer (Linux)
+    name: framebuffer (Linux VKMS + vfb)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-      - name: Test framebuffer packages
-        run: go test -v ./framebuffer/...
+      - name: Enable virtual KMS and fbdev devices
+        shell: bash
+        run: |
+          sudo modprobe vfb vfb_enable=1 mode_option=640x480-16@60
+          sudo modprobe vkms
+          sudo udevadm settle
+
+          kms_device=
+          for device in /dev/dri/card*; do
+            [[ -e "$device" ]] || continue
+            driver="$(readlink -f "/sys/class/drm/${device##*/}/device/driver" || true)"
+            if [[ "${driver##*/}" == vkms ]]; then
+              kms_device="$device"
+              break
+            fi
+          done
+
+          fbdev_device=
+          for device in /dev/fb*; do
+            [[ -e "$device" ]] || continue
+            name="$(cat "/sys/class/graphics/${device##*/}/name" 2>/dev/null || true)"
+            if [[ "$name" == "Virtual FB" ]]; then
+              fbdev_device="$device"
+              break
+            fi
+          done
+
+          if [[ -z "$kms_device" || -z "$fbdev_device" ]]; then
+            echo "Failed to find the VKMS and vfb device nodes."
+            ls -l /dev/dri /dev/fb* 2>/dev/null || true
+            exit 1
+          fi
+
+          printf 'VKMS_DEVICE=%s\nFBDEV_DEVICE=%s\n' "$kms_device" "$fbdev_device" >> "$GITHUB_ENV"
+      - name: Test framebuffer packages in Docker
+        run: |
+          docker run --rm \
+            --device="$VKMS_DEVICE" \
+            --device="$FBDEV_DEVICE" \
+            --volume="$GITHUB_WORKSPACE:/workspace" \
+            --workdir=/workspace \
+            --env="CGO_ENABLED=0" \
+            --env="DISPLAY_TEST_REQUIRE_HARDWARE=1" \
+            --env="DISPLAY_TEST_KMS_DEVICE=$VKMS_DEVICE" \
+            --env="DISPLAY_TEST_FBDEV_DEVICE=$FBDEV_DEVICE" \
+            golang:1.23.4-bookworm \
+            go test -v ./framebuffer/...
 
   freebsd:
     name: framebuffer (FreeBSD 15.1 amd64)
