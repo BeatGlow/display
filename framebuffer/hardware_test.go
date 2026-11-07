@@ -16,6 +16,7 @@ import (
 	"github.com/BeatGlow/display"
 	"github.com/BeatGlow/display/framebuffer/fbdev"
 	"github.com/BeatGlow/display/framebuffer/kms"
+	"github.com/BeatGlow/display/internal/ioctl"
 )
 
 func TestHardwareKMS(t *testing.T) {
@@ -28,6 +29,8 @@ func TestHardwareKMS(t *testing.T) {
 			errors.Is(err, syscall.ENODEV) || errors.Is(err, syscall.ENOTTY) ||
 			strings.Contains(err.Error(), "connected outputs; select one")
 	})
+	logHardwareDisplay(t, path, screen)
+	logDRMVersion(t, path)
 	testDisplayFunctions(t, screen)
 }
 
@@ -39,7 +42,64 @@ func TestHardwareFBDev(t *testing.T) {
 		return errors.Is(err, fbdev.ErrNotSupported) || errors.Is(err, fs.ErrPermission) ||
 			errors.Is(err, syscall.ENODEV) || errors.Is(err, syscall.ENOTTY)
 	})
+	logHardwareDisplay(t, path, screen)
 	testDisplayFunctions(t, screen)
+}
+
+func logHardwareDisplay(t *testing.T, path string, screen display.Display) {
+	t.Helper()
+	t.Logf("device=%q display=%q bounds=%v color-model=%T", path, screen.String(), screen.Bounds(), screen.ColorModel())
+}
+
+func logDRMVersion(t *testing.T, path string) {
+	t.Helper()
+	device, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		t.Logf("DRM version ioctl for %q failed: %v", path, err)
+		return
+	}
+	defer device.Close()
+
+	var version drmVersion
+	command := ioctl.Pointer(ioctl.Read|ioctl.Write, &version, 0x6400)
+	if err := ioctl.Do(device.Fd(), command, &version); err != nil {
+		t.Logf("DRM version ioctl for %q failed: %v", path, err)
+		return
+	}
+	name := make([]byte, version.nameLen)
+	date := make([]byte, version.dateLen)
+	description := make([]byte, version.descLen)
+	version.name = bytePointer(name)
+	version.date = bytePointer(date)
+	version.desc = bytePointer(description)
+	if err := ioctl.Do(device.Fd(), command, &version); err != nil {
+		t.Logf("DRM version ioctl data for %q failed: %v", path, err)
+		return
+	}
+	t.Logf("DRM driver: name=%q version=%d.%d.%d date=%q description=%q",
+		ioctlString(name), version.major, version.minor, version.patch,
+		ioctlString(date), ioctlString(description))
+}
+
+func bytePointer(data []byte) *byte {
+	if len(data) == 0 {
+		return nil
+	}
+	return &data[0]
+}
+
+func ioctlString(data []byte) string {
+	return strings.TrimRight(string(data), "\x00")
+}
+
+type drmVersion struct {
+	major, minor, patch int32
+	nameLen             uintptr
+	name                *byte
+	dateLen             uintptr
+	date                *byte
+	descLen             uintptr
+	desc                *byte
 }
 
 func hardwareDevicePath(variable, fallback string) string {
