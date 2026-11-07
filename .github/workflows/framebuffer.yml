@@ -27,87 +27,82 @@ permissions:
 jobs:
   linux-kms:
     name: framebuffer (Linux VKMS)
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Enable VKMS
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y "linux-modules-extra-$(uname -r)"
-          sudo modprobe vkms
-          sudo udevadm settle
-
-          kms_device=
-          for device in /dev/dri/card*; do
-            [[ -e "$device" ]] || continue
-            driver="$(readlink -f "/sys/class/drm/${device##*/}/device/driver" || true)"
-            if [[ "${driver##*/}" == vkms ]]; then
-              kms_device="$device"
-              break
+      - name: Test KMS with VKMS
+        uses: vmactions/ubuntu-vm@v1
+        with:
+          release: '24.04'
+          prepare: |
+            apt-get update
+            apt-get install -y curl linux-modules-extra-$(uname -r)
+            curl -fsSLO https://go.dev/dl/go1.23.4.linux-amd64.tar.gz
+            tar -C /usr/local -xzf go1.23.4.linux-amd64.tar.gz
+          run: |
+            export PATH=/usr/local/go/bin:$PATH
+            export CGO_ENABLED=0
+            modprobe vkms
+            udevadm settle
+            kms_device=
+            for device in /dev/dri/card*; do
+              [ -e "$device" ] || continue
+              driver=$(udevadm info --query=property --path="/sys/class/drm/${device##*/}" | sed -n 's/^DRIVER=//p')
+              if [ "$driver" = vkms ]; then
+                kms_device=$device
+                break
+              fi
+            done
+            if [ -z "$kms_device" ]; then
+              echo 'Failed to find the VKMS device node.'
+              ls -l /dev/dri 2>/dev/null || true
+              for card in /sys/class/drm/card*; do
+                [ -e "$card" ] && { echo "$card"; udevadm info --query=property --path="$card" || true; }
+              done
+              exit 1
             fi
-          done
-
-          if [[ -z "$kms_device" ]]; then
-            echo "Failed to find the VKMS device node."
-            ls -l /dev/dri 2>/dev/null || true
-            exit 1
-          fi
-
-          printf 'VKMS_DEVICE=%s\n' "$kms_device" >> "$GITHUB_ENV"
-      - name: Test KMS in Docker
-        run: |
-          docker run --rm \
-            --device="$VKMS_DEVICE" \
-            --volume="$GITHUB_WORKSPACE:/workspace" \
-            --workdir=/workspace \
-            --env="CGO_ENABLED=0" \
-            --env="DISPLAY_TEST_REQUIRE_HARDWARE=1" \
-            --env="DISPLAY_TEST_KMS_DEVICE=$VKMS_DEVICE" \
-            golang:1.23.4-bookworm \
-            sh -c 'go test -v ./framebuffer/kms/... && go test -v -run "^TestHardwareKMS$" ./framebuffer'
+            export DISPLAY_TEST_REQUIRE_HARDWARE=1
+            export DISPLAY_TEST_KMS_DEVICE=$kms_device
+            go test -v ./framebuffer/kms/...
+            go test -v -run '^TestHardwareKMS$' ./framebuffer
 
   linux-fbdev:
     name: framebuffer (Linux vfb)
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Enable vfb
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y "linux-modules-extra-$(uname -r)"
-          sudo modprobe vfb vfb_enable=1 mode_option=640x480-16@60
-          sudo udevadm settle
-
-          fbdev_device=
-          for device in /dev/fb*; do
-            [[ -e "$device" ]] || continue
-            name="$(cat "/sys/class/graphics/${device##*/}/name" 2>/dev/null || true)"
-            if [[ "$name" == "Virtual FB" ]]; then
-              fbdev_device="$device"
-              break
+      - name: Test fbdev with vfb
+        uses: vmactions/ubuntu-vm@v1
+        with:
+          release: '24.04'
+          prepare: |
+            apt-get update
+            apt-get install -y curl linux-modules-extra-$(uname -r)
+            curl -fsSLO https://go.dev/dl/go1.23.4.linux-amd64.tar.gz
+            tar -C /usr/local -xzf go1.23.4.linux-amd64.tar.gz
+          run: |
+            export PATH=/usr/local/go/bin:$PATH
+            export CGO_ENABLED=0
+            modprobe vfb vfb_enable=1 mode_option=640x480-16@60
+            udevadm settle
+            fbdev_device=
+            for device in /dev/fb*; do
+              [ -e "$device" ] || continue
+              name=$(cat "/sys/class/graphics/${device##*/}/name" 2>/dev/null || true)
+              if [ "$name" = 'Virtual FB' ]; then
+                fbdev_device=$device
+                break
+              fi
+            done
+            if [ -z "$fbdev_device" ]; then
+              echo 'Failed to find the vfb device node.'
+              ls -l /dev/fb* 2>/dev/null || true
+              exit 1
             fi
-          done
-
-          if [[ -z "$fbdev_device" ]]; then
-            echo "Failed to find the vfb device node."
-            ls -l /dev/fb* 2>/dev/null || true
-            exit 1
-          fi
-
-          printf 'FBDEV_DEVICE=%s\n' "$fbdev_device" >> "$GITHUB_ENV"
-      - name: Test fbdev in Docker
-        run: |
-          docker run --rm \
-            --device="$FBDEV_DEVICE" \
-            --volume="$GITHUB_WORKSPACE:/workspace" \
-            --workdir=/workspace \
-            --env="CGO_ENABLED=0" \
-            --env="DISPLAY_TEST_REQUIRE_HARDWARE=1" \
-            --env="DISPLAY_TEST_FBDEV_DEVICE=$FBDEV_DEVICE" \
-            golang:1.23.4-bookworm \
-            sh -c 'go test -v ./framebuffer/fbdev/... && go test -v -run "^TestHardwareFBDev$" ./framebuffer'
+            export DISPLAY_TEST_REQUIRE_HARDWARE=1
+            export DISPLAY_TEST_FBDEV_DEVICE=$fbdev_device
+            go test -v ./framebuffer/fbdev/...
+            go test -v -run '^TestHardwareFBDev$' ./framebuffer
 
   freebsd:
     name: framebuffer (FreeBSD 15.1 amd64)
