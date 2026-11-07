@@ -9,6 +9,10 @@ import (
 	"periph.io/x/conn/v3/gpio/gpioreg"
 	"periph.io/x/conn/v3/physic"
 	"periph.io/x/conn/v3/pin"
+	"periph.io/x/conn/v3/uart"
+	"periph.io/x/conn/v3/uart/uartreg"
+
+	"periph.io/x/host/v3"
 
 	"github.com/BeatGlow/display/conn"
 )
@@ -38,7 +42,7 @@ type Conn interface {
 	Data(...byte) error
 
 	// Interface is the underlying interface.
-	Interface() interface{}
+	Interface() any
 
 	// Send data over the serial interface.
 	//Send(data []byte, isCommand bool) error
@@ -62,6 +66,92 @@ type SPI interface {
 
 type Parallel interface {
 	Conn
+}
+
+// UARTConfig describes a UART connection.
+type UARTConfig struct {
+	// Port is the UART port name or alias. An empty name selects the first
+	// available port.
+	Port string
+	// Baud is the configured baud rate. It must match the display's serial
+	// interface setting and cannot exceed 115200.
+	Baud int
+	// Busy is an optional SBUSY input. The display drives it high while busy;
+	// connect it through a suitable level shifter.
+	Busy gpio.PinIn
+}
+
+// OpenUART opens a UART connection using 8 data bits, no parity, one stop
+// bit, and no flow control.
+func OpenUART(config *UARTConfig) (Conn, error) {
+	if config == nil {
+		return nil, errors.New("display: UART config can't be nil")
+	}
+	if config.Baud <= 0 || config.Baud > 115200 {
+		return nil, fmt.Errorf("display: invalid UART baud rate %d", config.Baud)
+	}
+	if _, err := host.Init(); err != nil {
+		return nil, err
+	}
+	port, err := uartreg.Open(config.Port)
+	if err != nil {
+		return nil, err
+	}
+	c, err := port.Connect(physic.Frequency(config.Baud)*physic.Hertz, uart.One, uart.NoParity, uart.NoFlow, 8)
+	if err != nil {
+		_ = port.Close()
+		return nil, err
+	}
+	return &uartConn{port: port, conn: c, busy: config.Busy}, nil
+}
+
+type uartConn struct {
+	port uart.PortCloser
+	conn interface {
+		Tx(w, r []byte) error
+	}
+	busy gpio.PinIn
+}
+
+func (c *uartConn) String() string {
+	return fmt.Sprintf("UART %v", c.port)
+}
+
+func (c *uartConn) Close() error {
+	return c.port.Close()
+}
+
+func (c *uartConn) Reset(gpio.Level) error {
+	return nil
+}
+
+func (c *uartConn) Command(command byte, args ...byte) error {
+	return c.Data(append([]byte{command}, args...)...)
+}
+
+func (c *uartConn) Data(data ...byte) error {
+	if isValidPin(c.busy) {
+		for _, b := range data {
+			c.waitReady()
+			if err := c.conn.Tx([]byte{b}, nil); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return c.conn.Tx(data, nil)
+}
+
+func (c *uartConn) waitReady() {
+	if isValidPin(c.busy) {
+		for c.busy.Read() {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+}
+
+func (c *uartConn) Interface() any {
+	return c.conn
 }
 
 // I2CConfig describes the I²C bus configuration.
@@ -104,17 +194,17 @@ func OpenI2C(config *I2CConfig) (Conn, error) {
 	}, nil
 }
 
-func (c *i2cConn) Interface() interface{} {
+func (c *i2cConn) Interface() any {
 	return c.I2C
 }
 
 func (c *i2cConn) Command(cmnd byte, args ...byte) (err error) {
-	_, err = c.I2C.Write(append([]byte{0x00, cmnd}, args...))
+	_, err = c.Write(append([]byte{0x00, cmnd}, args...))
 	return
 }
 
 func (c *i2cConn) Data(data ...byte) (err error) {
-	_, err = c.I2C.Write(append([]byte{0x40}, data...))
+	_, err = c.Write(append([]byte{0x40}, data...))
 	return
 }
 
@@ -170,7 +260,6 @@ var ValidSPISpeeds = []uint32{
 
 type spiConn struct {
 	bus       *conn.SPI
-	debug     bool
 	reset     gpio.PinOut
 	dc        gpio.PinOut
 	dcLevel   gpio.Level
@@ -226,11 +315,10 @@ func OpenSPI(config *SPIConfig) (Conn, error) {
 		reset:     config.Reset,
 		dc:        config.DC,
 		cs:        config.CE,
-		//debug:        true,
 	}, nil
 }
 
-func (c *spiConn) Interface() interface{} {
+func (c *spiConn) Interface() any {
 	return c.bus
 }
 
@@ -429,11 +517,11 @@ func OpenParallel(config *ParallelConfig) (Conn, error) {
 		d7:          config.D7,
 		write:       config.Write,
 		ready:       config.Ready,
-		rateLimiter: time.NewTicker(config.UpdateFrequency.Duration()),
+		rateLimiter: time.NewTicker(config.UpdateFrequency.Period()),
 	}, nil
 }
 
-func (c *parallelConn) Interface() interface{} {
+func (c *parallelConn) Interface() any {
 	return c
 }
 
@@ -530,4 +618,5 @@ var (
 	_ Conn = (*i2cConn)(nil)
 	_ Conn = (*spiConn)(nil)
 	_ Conn = (*parallelConn)(nil)
+	_ Conn = (*uartConn)(nil)
 )

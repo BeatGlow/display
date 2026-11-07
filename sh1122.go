@@ -78,7 +78,7 @@ func (d *sh1122) String() string {
 
 func (d *sh1122) init(config *Config) (err error) {
 	var (
-		multiplexRatio byte = byte(config.Height - 1)
+		multiplexRatio = byte(config.Height - 1)
 		displayOffset  byte
 	)
 	switch {

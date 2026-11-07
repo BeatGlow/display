@@ -61,7 +61,7 @@ func (d *ssd1306) String() string {
 
 func (d *ssd1306) init(config *Config) (err error) {
 	var (
-		multiplexRatio  byte = byte(config.Width - 1)
+		multiplexRatio  = byte(config.Width - 1)
 		displayClockDiv byte
 		comPins         byte
 		colStart        byte

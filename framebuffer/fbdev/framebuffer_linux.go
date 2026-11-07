@@ -1,8 +1,9 @@
-package framebuffer
+package fbdev
 
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"os"
@@ -23,6 +24,8 @@ type linuxFrameBuffer struct {
 	pixel.Buffer
 	pixel.Image
 	f          *os.File
+	name       string
+	mapped     []byte
 	fd         uintptr
 	info       linuxFrameBufferInfo
 	screenInfo linuxVarScreenInfo
@@ -32,60 +35,112 @@ type linuxFrameBuffer struct {
 
 // Open a Linux FrameBuffer device (fbdev) by name, typically /dev/fb[0..x].
 func Open(name string) (display.Display, error) {
+	if name == "" {
+		name = "/dev/fb0"
+	}
 	f, err := os.OpenFile(name, os.O_RDWR, os.ModeDevice)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fbdev: open %s: %w", name, err)
 	}
 
 	fb := &linuxFrameBuffer{
-		f:  f,
-		fd: f.Fd(),
+		f:    f,
+		name: name,
+		fd:   f.Fd(),
 	}
 	if err = fb.ioctl(fbioGetFScreenInfo, unsafe.Pointer(&fb.info)); err != nil {
 		_ = f.Close()
-		return nil, err
+		return nil, fmt.Errorf("fbdev: query fixed screen info: %w", err)
 	}
 
 	// Request virtual screen info.
 	if err = fb.ioctl(fbioGetVScreenInfo, unsafe.Pointer(&fb.screenInfo)); err != nil {
 		_ = f.Close()
-		return nil, err
+		return nil, fmt.Errorf("fbdev: query variable screen info: %w", err)
 	}
 	if fb.model, fb.order, err = linuxParseColorModel(&fb.screenInfo); err != nil {
 		_ = f.Close()
 		return nil, err
 	}
-
-	// Map pixel buffer.
-	if fb.Buffer.Pix, err = syscall.Mmap(int(fb.fd), 0, int(fb.info.SmemLen), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED); err != nil {
+	if err = fb.configureImage(); err != nil {
 		_ = f.Close()
 		return nil, err
 	}
 
-	fb.Buffer.Rect = image.Rect(
-		int(fb.screenInfo.Xoffset), int(fb.screenInfo.Yoffset),
-		int(fb.screenInfo.Xres), int(fb.screenInfo.Yres),
-	)
-
-	fb.setImage()
+	// Map pixel buffer.
+	maxInt := uint64(^uint(0) >> 1)
+	if fb.info.SmemLen == 0 || uint64(fb.info.SmemLen) > maxInt {
+		_ = f.Close()
+		return nil, errors.New("fbdev: invalid framebuffer memory length")
+	}
+	if fb.mapped, err = syscall.Mmap(int(fb.fd), 0, int(fb.info.SmemLen), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("fbdev: map framebuffer memory: %w", err)
+	}
+	if err = fb.setMapping(fb.mapped); err != nil {
+		_ = syscall.Munmap(fb.mapped)
+		_ = f.Close()
+		return nil, err
+	}
 	return fb, nil
+}
+
+func (fb *linuxFrameBuffer) configureImage() error {
+	info := &fb.screenInfo
+	if info.Xres == 0 || info.Yres == 0 {
+		return errors.New("fbdev: invalid framebuffer dimensions")
+	}
+	bytesPerPixel := uint64((info.BitsPerPixel + 7) / 8)
+	if bytesPerPixel == 0 || fb.info.LineLength == 0 || uint64(fb.info.LineLength) < (uint64(info.Xoffset)+uint64(info.Xres))*bytesPerPixel {
+		return errors.New("fbdev: line length is shorter than the active pixel row")
+	}
+	if uint64(info.Xoffset)+uint64(info.Xres) > uint64(info.XresVirtual) || uint64(info.Yoffset)+uint64(info.Yres) > uint64(info.YresVirtual) {
+		return errors.New("fbdev: active view exceeds virtual framebuffer dimensions")
+	}
+	lastRow := uint64(info.Yoffset) + uint64(info.Yres) - 1
+	rowBytes := (uint64(info.Xoffset) + uint64(info.Xres)) * bytesPerPixel
+	if fb.info.SmemLen == 0 || lastRow > uint64(fb.info.SmemLen)/uint64(fb.info.LineLength) {
+		return errors.New("fbdev: active view exceeds framebuffer memory")
+	}
+	lastRowStart := lastRow * uint64(fb.info.LineLength)
+	if rowBytes > uint64(fb.info.SmemLen)-lastRowStart {
+		return errors.New("fbdev: active view exceeds framebuffer memory")
+	}
+	maxInt := uint64(^uint(0) >> 1)
+	if uint64(info.Xres) > maxInt || uint64(info.Yres) > maxInt || uint64(fb.info.LineLength) > maxInt {
+		return errors.New("fbdev: framebuffer dimensions exceed process limits")
+	}
+	return nil
+}
+
+func (fb *linuxFrameBuffer) setMapping(mapped []byte) error {
+	bytesPerPixel := uint64((fb.screenInfo.BitsPerPixel + 7) / 8)
+	offset := uint64(fb.screenInfo.Yoffset)*uint64(fb.info.LineLength) + uint64(fb.screenInfo.Xoffset)*bytesPerPixel
+	viewLen := uint64(fb.screenInfo.Yres-1)*uint64(fb.info.LineLength) + uint64(fb.screenInfo.Xres)*bytesPerPixel
+	if offset > uint64(len(mapped)) || viewLen > uint64(len(mapped))-offset {
+		return errors.New("fbdev: active framebuffer view exceeds mapped memory")
+	}
+	fb.mapped = mapped
+	fb.Pix = mapped[int(offset):int(offset+viewLen)]
+	fb.Rect = image.Rect(0, 0, int(fb.screenInfo.Xres), int(fb.screenInfo.Yres))
+	fb.Stride = int(fb.info.LineLength)
+	fb.setImage()
+	return nil
 }
 
 func (fb *linuxFrameBuffer) setImage() {
 	switch fb.model {
 	case pixel.CBGR15Model:
-		fb.Buffer.Stride = int(fb.screenInfo.Width) * 2
+		fb.Image = &pixel.CBGR15Image{Buffer: fb.Buffer, Order: fb.order}
 	case pixel.CBGR16Model:
-		fb.Buffer.Stride = int(fb.screenInfo.Width) * 2
+		fb.Image = &pixel.CBGR16Image{Buffer: fb.Buffer, Order: fb.order}
 	case pixel.CRGB15Model:
-		fb.Buffer.Stride = int(fb.screenInfo.Width) * 2
 		fb.Image = &pixel.CRGB15Image{
 			Buffer: fb.Buffer,
 			Order:  fb.order,
 		}
 	case pixel.CRGB16Model:
-		fb.Buffer.Stride = int(fb.screenInfo.Width) * 2
-		fb.Image = &pixel.CRGB15Image{
+		fb.Image = &pixel.CRGB16Image{
 			Buffer: fb.Buffer,
 			Order:  fb.order,
 		}
@@ -93,38 +148,35 @@ func (fb *linuxFrameBuffer) setImage() {
 }
 
 func (fb *linuxFrameBuffer) Bounds() image.Rectangle {
-	return fb.Buffer.Bounds()
+	return fb.Rect
+}
+
+func (fb *linuxFrameBuffer) String() string {
+	return fb.name
+}
+
+// Clear clears the mapped framebuffer.
+func (fb *linuxFrameBuffer) Clear() {
+	fb.Fill(color.Black)
 }
 
 // Close the framebuffer device
 func (fb *linuxFrameBuffer) Close() error {
-	if err := syscall.Munmap(fb.Buffer.Pix); err != nil {
-		return err
+	var err error
+	if fb.mapped != nil {
+		err = syscall.Munmap(fb.mapped)
+		fb.mapped = nil
 	}
-	return fb.f.Close()
+	if fb.f != nil {
+		err = errors.Join(err, fb.f.Close())
+		fb.f = nil
+	}
+	return err
 }
 
 func (fb *linuxFrameBuffer) Fill(c color.Color) {
-	switch im := fb.Image.(type) {
-	case *pixel.CBGR15Image:
-		im.Fill(c)
-	case *pixel.CBGR16Image:
-		im.Fill(c)
-	case *pixel.CRGB15Image:
-		im.Fill(c)
-	case *pixel.CRGB16Image:
-		im.Fill(c)
-	case *image.RGBA:
-		r, g, b, a := c.RGBA()
-		pix := []byte{
-			byte(r >> 8),
-			byte(g >> 8),
-			byte(b >> 8),
-			byte(a >> 8),
-		}
-		for i, l := 0, len(fb.Buffer.Pix); i < l; i += 4 {
-			copy(fb.Buffer.Pix[i:], pix)
-		}
+	if fb.Image != nil {
+		fb.Image.Fill(c)
 	}
 }
 
@@ -212,19 +264,12 @@ type linuxVarScreenInfo struct {
 	Reserved                [4]uint32
 }
 
-// linuxPixelFormat of the framebuffer
-type linuxPixelFormat int
-
-const (
-	// UnknownPixelFormat for when detection is not (yet) implemented
-	linuxUnknownPixelFormat linuxPixelFormat = iota
-	// BGR565 is a 16bit pixelformat
-	linuxBGR565
-)
-
 func linuxParseColorModel(info *linuxVarScreenInfo) (color.Model, binary.ByteOrder, error) {
 	if info == nil {
-		return nil, nil, errors.New("invalid VarScreenInfo")
+		return nil, nil, errors.New("fbdev: invalid variable screen info")
+	}
+	if info.Red.MsbRight != 0 || info.Green.MsbRight != 0 || info.Blue.MsbRight != 0 || info.Alpha.MsbRight != 0 {
+		return nil, nil, errors.New("fbdev: reversed color bitfields are unsupported")
 	}
 
 	switch info.BitsPerPixel {
@@ -237,7 +282,7 @@ func linuxParseColorModel(info *linuxVarScreenInfo) (color.Model, binary.ByteOrd
 			info.Red.Offset == 10 &&
 			info.Red.Length == 5 &&
 			info.Alpha.Length == 0:
-			return pixel.CBGR15Model, binary.BigEndian, nil
+			return pixel.CRGB15Model, binary.NativeEndian, nil
 
 		case info.Red.Offset == 0 &&
 			info.Red.Length == 5 &&
@@ -246,7 +291,7 @@ func linuxParseColorModel(info *linuxVarScreenInfo) (color.Model, binary.ByteOrd
 			info.Blue.Offset == 10 &&
 			info.Blue.Length == 5 &&
 			info.Alpha.Length == 0:
-			return pixel.CRGB15Model, binary.BigEndian, nil
+			return pixel.CBGR15Model, binary.NativeEndian, nil
 		}
 
 	case 16:
@@ -258,7 +303,7 @@ func linuxParseColorModel(info *linuxVarScreenInfo) (color.Model, binary.ByteOrd
 			info.Red.Offset == 11 &&
 			info.Red.Length == 5 &&
 			info.Alpha.Length == 0:
-			return pixel.CBGR16Model, binary.BigEndian, nil
+			return pixel.CRGB16Model, binary.NativeEndian, nil
 
 		case info.Red.Offset == 0 &&
 			info.Red.Length == 5 &&
@@ -267,21 +312,10 @@ func linuxParseColorModel(info *linuxVarScreenInfo) (color.Model, binary.ByteOrd
 			info.Blue.Offset == 11 &&
 			info.Blue.Length == 5 &&
 			info.Alpha.Length == 0:
-			return pixel.CRGB16Model, binary.BigEndian, nil
+			return pixel.CBGR16Model, binary.NativeEndian, nil
 		}
 
-	case 24:
-		switch {
-		case info.Red.Offset == 0 &&
-			info.Red.Length == 8 &&
-			info.Green.Offset == 8 &&
-			info.Green.Length == 8 &&
-			info.Blue.Offset == 16 &&
-			info.Blue.Length == 8 &&
-			info.Alpha.Length == 8:
-			return color.RGBAModel, binary.BigEndian, nil
-		}
 	}
 
-	return nil, nil, errors.New("framebuffer: unsupported color model")
+	return nil, nil, errors.New("fbdev: unsupported color model")
 }

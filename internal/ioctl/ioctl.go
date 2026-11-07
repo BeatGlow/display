@@ -20,23 +20,11 @@ const (
 type Command uintptr
 
 func (c Command) String() string {
-	var (
-		mode = Mode(c >> 30 & 0x03)
-		size = c >> 16 & 0x3fff
-		cmd  = c & 0xffff
-		str  string
-	)
-	if mode&Write > 0 {
-		str += " write"
-	}
-	if mode&Read > 0 {
-		str += " read "
-	}
-	return fmt.Sprintf("ioctl%s (%d bytes) 0x%04x", str, size, uintptr(cmd))
+	return fmt.Sprintf("ioctl (%d bytes) 0x%04x", c>>16&ioctlSizeMask, uintptr(c&0xffff))
 }
 
 // Do executes the ioctl call.
-func Do(fd uintptr, command Command, ptr interface{}) error {
+func Do(fd uintptr, command Command, ptr any) error {
 	var p uintptr
 
 	if ptr != nil {
@@ -60,13 +48,8 @@ func Call(fd, command, arg uintptr) error {
 	return nil
 }
 
-// Encode an ioctl command.
-func Encode(mode Mode, size uint16, cmd uintptr) Command {
-	return Command(mode)<<30 | Command(size)<<16 | Command(cmd)
-}
-
 // Pointer to a value.
-func Pointer(mode Mode, ref interface{}, cmd uintptr) Command {
+func Pointer(mode Mode, ref any, cmd uintptr) Command {
 	size := uint16(reflect.TypeOf(ref).Elem().Size())
 	return Encode(mode, size, cmd)
 }

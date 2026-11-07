@@ -1,0 +1,426 @@
+name: offline display
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  select-drivers:
+    runs-on: ubuntu-latest
+    outputs:
+      drivers: ${{ steps.select.outputs.drivers }}
+      all_drivers: ${{ steps.select.outputs.all_drivers }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Select driver checks from changed paths
+        id: select
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+
+          all_drivers=0
+          main_dispatch_changed=0
+          drivers=()
+          if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
+            all_drivers=1
+          else
+            while IFS= read -r path; do
+              case "$path" in
+                cmd/display-test/offline_*.go)
+                  if [[ "$path" == "cmd/display-test/offline_test.go" ]]; then
+                    all_drivers=1
+                  else
+                    driver="${path##*/offline_}"
+                    drivers+=("${driver%.go}")
+                  fi
+                  ;;
+                cmd/display-test/main.go)
+                  main_dispatch_changed=1
+                  ;;
+                *.go)
+                  source="${path%.go}"
+                  driver="$source"
+                  [[ "$driver" == "gp1287" ]] && driver=gp1278
+                  if [[ "$path" == "$source.go" && -f "cmd/display-test/offline_$driver.go" ]]; then
+                    drivers+=("$driver")
+                  else
+                    all_drivers=1
+                  fi
+                  ;;
+                *) all_drivers=1 ;;
+              esac
+            done < <(git diff --name-only "$base" "$GITHUB_SHA")
+          fi
+
+          if [[ "$main_dispatch_changed" == "1" ]]; then
+            mapfile -t main_changes < <(git diff --unified=0 "$base" "$GITHUB_SHA" -- cmd/display-test/main.go | grep -E '^[+-][^+-]')
+            valid_driver_dispatch=1
+            dispatch_case_count=0
+            dispatch_call_count=0
+            if [[ ${#main_changes[@]} -ne 2 ]]; then
+              valid_driver_dispatch=0
+            else
+              for change in "${main_changes[@]}"; do
+                if [[ "$change" =~ ^\+[[:space:]]*case\ \"([a-z0-9]+)\":$ ]]; then
+                  case_driver="${BASH_REMATCH[1]}"
+                  matched_driver=0
+                  for driver in "${drivers[@]}"; do
+                    if [[ "$driver" == "$case_driver" ]]; then matched_driver=1; fi
+                  done
+                  if [[ "$matched_driver" == "1" ]]; then
+                    dispatch_case_count=$((dispatch_case_count + 1))
+                  else
+                    valid_driver_dispatch=0
+                  fi
+                elif [[ "$change" =~ ^\+[[:space:]]*output,\ err\ =\ display\.[A-Za-z0-9_]+\(conn,\ config\)$ ]]; then
+                  dispatch_call_count=$((dispatch_call_count + 1))
+                else
+                  valid_driver_dispatch=0
+                fi
+              done
+            fi
+            if [[ "$dispatch_case_count" -ne 1 || "$dispatch_call_count" -ne 1 ]]; then
+              valid_driver_dispatch=0
+            fi
+            if [[ "$valid_driver_dispatch" != "1" ]]; then
+              all_drivers=1
+            fi
+          fi
+
+          if [[ ${#drivers[@]} -gt 0 ]]; then
+            mapfile -t drivers < <(printf '%s\n' "${drivers[@]}" | sort -u)
+          fi
+          if [[ "$all_drivers" == "1" || ${#drivers[@]} == 0 ]]; then
+            all_drivers=1
+            drivers=()
+            for settings in cmd/display-test/offline_*.go; do
+              [[ "$settings" == "cmd/display-test/offline_test.go" ]] && continue
+              driver="${settings##*/offline_}"
+              drivers+=("${driver%.go}")
+            done
+          fi
+
+          drivers_json='['
+          for driver in "${drivers[@]}"; do
+            drivers_json+="\"$driver\","
+          done
+          drivers_json="${drivers_json%,}]"
+          printf 'drivers=%s\n' "$drivers_json" >> "$GITHUB_OUTPUT"
+          printf 'all_drivers=%s\n' "$all_drivers" >> "$GITHUB_OUTPUT"
+          printf 'Selected offline drivers: %s\n' "${drivers[*]}"
+          printf 'Run virtual color matrix: %s\n' "$all_drivers"
+
+  offline-virtual:
+    needs: select-drivers
+    if: needs.select-drivers.outputs.all_drivers == '1'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        color: [mono, gray2, gray4, rgb15, rgb16]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Run virtual framebuffer color check
+        env:
+          COLOR: ${{ matrix.color }}
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/display-artifacts"
+          go run ./cmd/display-test \
+            -width 37 -height 19 -color "$COLOR" \
+            -output "$RUNNER_TEMP/display-artifacts/virtual-$COLOR.png" \
+            -trace "$RUNNER_TEMP/display-artifacts/virtual-$COLOR.json" \
+            offline virtual
+
+      - name: Upload virtual framebuffer preview
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ runner.temp }}/display-artifacts/virtual-${{ matrix.color }}.png
+          archive: false
+          if-no-files-found: error
+
+      - name: Upload virtual display traces
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: offline-display-virtual-${{ matrix.color }}-trace
+          path: ${{ runner.temp }}/display-artifacts/virtual-${{ matrix.color }}.json
+          if-no-files-found: error
+
+  offline-driver:
+    needs: select-drivers
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        driver: ${{ fromJSON(needs.select-drivers.outputs.drivers) }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Run driver emulation
+        env:
+          DRIVER: ${{ matrix.driver }}
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/display-artifacts"
+          go run ./cmd/display-test \
+            -contrast 128 \
+            -output "$RUNNER_TEMP/display-artifacts/$DRIVER.png" \
+            -trace "$RUNNER_TEMP/display-artifacts/$DRIVER.json" \
+            offline "$DRIVER"
+
+      - name: Upload browser-viewable driver preview
+        id: preview
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ runner.temp }}/display-artifacts/${{ matrix.driver }}.png
+          archive: false
+          if-no-files-found: error
+
+      - name: Upload driver trace
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: offline-display-${{ matrix.driver }}-trace
+          path: ${{ runner.temp }}/display-artifacts/${{ matrix.driver }}.json
+          if-no-files-found: error
+
+      - name: Link preview in job summary
+        if: always() && steps.preview.outputs.artifact-url != ''
+        env:
+          DRIVER: ${{ matrix.driver }}
+          PREVIEW_URL: ${{ steps.preview.outputs.artifact-url }}
+        run: |
+          printf '### %s preview\n\n[Open PNG preview in your browser](%s)\n' "$DRIVER" "$PREVIEW_URL" >> "$GITHUB_STEP_SUMMARY"
+
+  offline-gallery:
+    needs: [select-drivers, offline-virtual, offline-driver]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Download all tested screen previews
+        uses: actions/download-artifact@v8
+        with:
+          pattern: '*.png'
+          path: ${{ runner.temp }}/display-previews
+          merge-multiple: true
+
+      - name: Create browser-viewable gallery
+        env:
+          EXPECTED_DRIVERS: ${{ needs.select-drivers.outputs.drivers }}
+          ALL_DRIVERS: ${{ needs.select-drivers.outputs.all_drivers }}
+          PREVIEW_DIR: ${{ runner.temp }}/display-previews
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from base64 import b64encode
+          from html import escape
+          import json
+          import os
+          from pathlib import Path
+
+          directory = Path(os.environ["PREVIEW_DIR"])
+          images = {image.name: image for image in directory.glob("*.png")}
+          expected = []
+          if os.environ["ALL_DRIVERS"] == "1":
+              expected.extend([
+                  "virtual-mono.png", "virtual-gray2.png", "virtual-gray4.png",
+                  "virtual-rgb15.png", "virtual-rgb16.png",
+              ])
+          expected.extend(f"{driver}.png" for driver in json.loads(os.environ["EXPECTED_DRIVERS"]))
+
+          cards = []
+          for name in expected:
+              image = images.get(name)
+              if image is None:
+                  content = '<p class="missing">Preview unavailable; the test did not produce an image.</p>'
+              else:
+                  encoded = b64encode(image.read_bytes()).decode("ascii")
+                  content = f'<img src="data:image/png;base64,{encoded}" alt="{escape(image.stem)}">'
+              screen_id = escape(Path(name).stem, quote=True)
+              cards.append(f'<section id="{screen_id}"><h2>{escape(Path(name).stem)}</h2>{content}</section>')
+
+          page = """<!doctype html>
+          <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+          <title>Offline display previews</title>
+          <style>body{font:16px system-ui;margin:2rem;background:#181818;color:#eee}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:1rem}section{padding:1rem;background:#282828;border-radius:.5rem}img{display:block;width:100%;max-width:760px;height:auto;image-rendering:pixelated;background:#000}.missing{padding:1rem;background:#481f1f}</style>
+          <h1>Offline display previews</h1><main>
+          """ + "\n".join(cards) + "\n</main></html>"
+          (directory / "display-gallery.html").write_text(page, encoding="utf-8")
+          PY
+
+      - name: Upload browser-viewable gallery
+        id: gallery
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ runner.temp }}/display-previews/display-gallery.html
+          archive: false
+          if-no-files-found: error
+
+      - name: Link gallery in job summary
+        if: always() && steps.gallery.outputs.artifact-url != ''
+        env:
+          GALLERY_URL: ${{ steps.gallery.outputs.artifact-url }}
+        run: |
+          printf '### Tested display gallery\n\n[Open all tested screen previews](%s)\n' "$GALLERY_URL" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create preview publisher token
+        id: preview-app-token
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/create-github-app-token@v3.2.0
+        continue-on-error: true
+        with:
+          client-id: ${{ secrets.PREVIEW_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PREVIEW_APP_PRIVATE_KEY }}
+          repositories: display
+          permission-contents: write
+
+      - name: Publish images for inline PR previews
+        id: publish-previews
+        if: steps.preview-app-token.outputs.token != ''
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ steps.preview-app-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PREVIEW_DIR: ${{ runner.temp }}/display-previews
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! compgen -G "$PREVIEW_DIR/*.png" > /dev/null; then
+            echo 'No PNG previews to publish.'
+            exit 0
+          fi
+
+          repository="$RUNNER_TEMP/display-preview-store"
+          mkdir -p "$repository"
+          cd "$repository"
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://github.com/$GH_REPO.git"
+          gh auth setup-git --hostname github.com
+
+          for attempt in 1 2 3; do
+            if git ls-remote --exit-code --heads origin display-previews > /dev/null; then
+              git fetch origin display-previews
+              git checkout -B display-previews FETCH_HEAD
+            else
+              git checkout --orphan display-previews
+            fi
+
+            mkdir -p "pr-$PR_NUMBER"
+            rm -f "pr-$PR_NUMBER"/*.png
+            find "$PREVIEW_DIR" -maxdepth 1 -type f -name '*.png' -exec cp {} "pr-$PR_NUMBER/" \;
+            git add -A "pr-$PR_NUMBER"
+            if ! git diff --cached --quiet; then
+              git commit -m "Update display previews for PR #$PR_NUMBER (run $RUN_ID)"
+            fi
+
+            if git push origin HEAD:refs/heads/display-previews; then
+              echo "preview-base=https://raw.githubusercontent.com/$GH_REPO/display-previews/pr-$PR_NUMBER" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Preview branch push failed on attempt $attempt; retrying."
+          done
+          echo 'Could not publish previews after three attempts.' >&2
+          exit 1
+
+      - name: Remove previous preview overview comments
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.issue.number;
+            const marker = '<!-- offline-display-preview-gallery -->';
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number, per_page: 100,
+            });
+            const previous = comments.filter(comment =>
+              comment.user?.login === 'github-actions[bot]' && comment.body?.includes(marker),
+            );
+            for (const comment of previous) {
+              await github.rest.issues.deleteComment({
+                owner, repo, comment_id: comment.id,
+              });
+            }
+
+      - name: Comment preview overview with screen links
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          EXPECTED_DRIVERS: ${{ needs.select-drivers.outputs.drivers }}
+          ALL_DRIVERS: ${{ needs.select-drivers.outputs.all_drivers }}
+          GALLERY_URL: ${{ steps.gallery.outputs.artifact-url }}
+          PREVIEW_BASE: ${{ steps.publish-previews.outputs.preview-base }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PREVIEW_DIR: ${{ runner.temp }}/display-previews
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          comment_file="$RUNNER_TEMP/display-preview-comment.md"
+          mapfile -t drivers < <(jq -r '.[]' <<< "$EXPECTED_DRIVERS")
+          virtual_count=0
+          screens=("${drivers[@]}")
+          if [[ "$ALL_DRIVERS" == "1" ]]; then
+            virtual_count=5
+            screens=(virtual-mono virtual-gray2 virtual-gray4 virtual-rgb15 virtual-rgb16 "${drivers[@]}")
+          fi
+
+          {
+            printf '<!-- offline-display-preview-gallery -->\n'
+            printf '## Offline display preview overview\n\n'
+            printf '[Open the full gallery for this run](%s)\n\n' "$GALLERY_URL"
+            printf 'Previews expected in this run: **%d** (%d virtual color modes and %d selected drivers).\n\n' "${#screens[@]}" "$virtual_count" "${#drivers[@]}"
+            printf '| Screen | Preview |\n| --- | --- |\n'
+          } > "$comment_file"
+
+          for screen in "${screens[@]}"; do
+            image="$PREVIEW_DIR/$screen.png"
+            if [[ -f "$image" ]]; then
+              if [[ -n "$PREVIEW_BASE" ]]; then
+                printf '| %s | ![%s preview](%s/%s.png?run=%s) |\n' "$screen" "$screen" "$PREVIEW_BASE" "$screen" "$RUN_ID" >> "$comment_file"
+              else
+                printf '| %s | [Open preview](%s#%s) |\n' "$screen" "$GALLERY_URL" "$screen" >> "$comment_file"
+              fi
+            else
+              printf '| %s | Preview unavailable; see the offline check result. |\n' "$screen" >> "$comment_file"
+            fi
+          done
+
+          printf '\nCommit: `%s`. Offline test results are reported in the checks above.\n' "${HEAD_SHA:0:7}" >> "$comment_file"
+          gh pr comment "$PR_NUMBER" --body-file "$comment_file"

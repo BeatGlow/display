@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"time"
 
 	"periph.io/x/conn/v3/gpio"
 
@@ -35,7 +36,6 @@ type gp1294 struct {
 	spiConn       *conn.SPI
 	width, height int
 	pix           []byte
-	pageSize      int
 }
 
 func GP1294(c Conn, config *Config) (Display, error) {
@@ -91,10 +91,18 @@ func (d *gp1294) init(config *Config) (err error) {
 		return fmt.Errorf("gp1294: error setting backlight on: %w", err)
 	}
 
+	if err = d.command(gp1294Reset); err != nil {
+		return err
+	}
+	time.Sleep(10 * time.Millisecond) // The module requires 10 ms after software reset.
+
 	if err = d.commands([][]byte{
-		{gp1294Reset},
+		{gp1294OscSetting, 0x08},
 		{gp1294VFDMode, 0x01, 0x1F, 0x00, 0xFF, 0x2F, 0x00, 0x20},
 		{gp1294Brightness, byte(gp1264DefaultBrightness), byte(gp1264DefaultBrightness >> 8)},
+		{gp1294DisplayOffset, 0x00, 0x00},
+		{gp1294FrameSync, 0x00},
+		{gp1294DisplayMode, 0x00},
 	}...); err != nil {
 		return
 	}
@@ -103,11 +111,7 @@ func (d *gp1294) init(config *Config) (err error) {
 		return
 	}
 
-	if err = d.commands([][]byte{
-		{gp1294DisplayMode, 0x00},
-		{gp1294OscSetting, 0x08},
-		{gp1294DisplayOn},
-	}...); err != nil {
+	if err = d.command(gp1294DisplayOn); err != nil {
 		return
 	}
 
@@ -157,9 +161,11 @@ func (d *gp1294) Fill(c color.Color) {
 }
 
 func (d *gp1294) clear() error {
-	empty := make([]byte, (d.width*d.height)/8)
+	// GP1294AI does not implement RAM clear (0x55). Clear its full 256x128
+	// controller RAM using a 128-dot return length.
+	empty := make([]byte, 256*128/8)
 	return d.command(gp1294WriteGRAM, append([]byte{
-		0, 0, byte(d.height) - 1},
+		0, 0, 0x7F},
 		empty...,
 	)...)
 }
@@ -178,7 +184,7 @@ func (d *gp1294) At(x, y int) color.Color {
 	}
 
 	offset := x*(d.height/8) + y/8
-	if d.pix[offset]&(1<<y%8) != 0 {
+	if d.pix[offset]&(1<<(y%8)) != 0 {
 		return pixel.On
 	}
 	return pixel.Off

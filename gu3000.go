@@ -7,14 +7,13 @@ import (
 )
 
 const (
-	gu3000DefaultWidth        = 256
-	gu3000DefaultHeight       = 128
-	gu3000BroadcastDAD        = 0xff // all displays
-	gu3000BitImageWrite       = 0x46
-	gu3000BoxBitImageWrite    = 0x42
-	gu3000DisplayStartAddress = 0x53
-	gu3000DisplaySynchronous  = 0x57
-	gu3000BrightnessLevel     = 0x58
+	gu3000DefaultWidth       = 256
+	gu3000DefaultHeight      = 128
+	gu3000BroadcastDAD       = 0xff // all displays
+	gu3000BitImageWrite      = 0x46
+	gu3000BoxBitImageWrite   = 0x42
+	gu3000DisplaySynchronous = 0x57
+	gu3000BrightnessLevel    = 0x58
 )
 
 type gu3000 struct {
@@ -70,10 +69,6 @@ func (d *gu3000) Command(cmd byte, args ...byte) (err error) {
 		[]byte{0x02, 0x44, d.dad, cmd},
 		args...,
 	)...)
-}
-
-func (d *gu3000) setDisplayStartAddress(addr uint16) (err error) {
-	return d.Command(gu3000DisplayStartAddress, byte(addr&0xff), byte(addr>>8))
 }
 
 func (d *gu3000) SetContrast(level uint8) error {

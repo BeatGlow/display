@@ -13,6 +13,7 @@
 !/.github/workflows/*
 
 !*.go
+!*.s
 !go.sum
 !go.mod
 
@@ -25,3 +26,9 @@
 
 # ...even if they are in subdirectories
 !*/
+!/cmd/
+!/cmd/display-test-framebuffer/
+!/cmd/display-test-framebuffer/assets/
+!/cmd/display-test-framebuffer/assets/*
+!/internal/
+!/internal/buffer/
