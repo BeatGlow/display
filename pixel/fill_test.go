@@ -48,7 +48,7 @@ func BenchmarkFill400x1280(b *testing.B) {
 			},
 		},
 	} {
-		b.Run(tc.name+"/SIMD", func(b *testing.B) {
+		b.Run(tc.name+"/Vector", func(b *testing.B) {
 			dst := make([]byte, tc.size)
 			b.SetBytes(int64(len(dst)))
 			b.ReportAllocs()

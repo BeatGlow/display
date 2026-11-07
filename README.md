@@ -12,7 +12,17 @@
 - Build compact interfaces with the widget, font, and menu packages.
 - Select a Linux DRM/KMS or fbdev display through `framebuffer`, or open a backend directly from its subpackage.
 - Drive Linux and FreeBSD 15.1 amd64 displays through DRM/KMS, with connector and mode selection plus vblank-synchronized page flips.
-- Optimized same-format 16-bit image blits and pixel-buffer fills.
+- Optimized 16-bit image blits, solid spans, RGBA copies, and pixel-buffer fills.
+
+## Rendering benchmark highlights
+
+On an Apple M2, filling a 400×128 CRGB16 display buffer measured a 2.38 µs
+median versus 829 µs for per-pixel writes. A hardware-free SPI chunk-loop
+benchmark for a 102,400-byte frame measured 65.5 ns with 4,096-byte chunks
+(25 writes), 15.7 ns with 16,384-byte chunks (7 writes), and 2.1 ns for one
+write. It uses a no-op writer to isolate CPU-side chunking overhead; it excludes
+SPI driver and hardware transfer time. Reproduce with
+`go test . -run '^$' -bench '^BenchmarkSPITransferChunking$' -benchmem -benchtime=1s -count=3`. See the `pixel`, `draw`, and `framebuffer/kms` package READMEs for more details.
 
 ## Display controllers
 

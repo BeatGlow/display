@@ -1,7 +1,7 @@
 #include "textflag.h"
 
-// fillSIMDAMD64 repeats pattern across dst in 16-byte SSE2 stores.
-TEXT ·fillSIMDAMD64(SB), NOSPLIT, $0-40
+// fillSIMD repeats pattern across dst in 16-byte SSE2 stores.
+TEXT ·fillSIMD(SB), NOSPLIT, $0-40
 	MOVQ dst_base+0(FP), AX
 	MOVQ dst_len+8(FP), BX
 	MOVQ pattern+24(FP), CX

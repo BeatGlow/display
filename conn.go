@@ -400,27 +400,27 @@ func (c *spiConn) Data(data ...byte) (err error) {
 	return
 }
 
-func (c *spiConn) writeChunked(data []byte) (err error) {
-	if len(data) < int(c.batchSize) {
-		_, err = c.bus.Write(data)
-		return
+func (c *spiConn) writeChunked(data []byte) error {
+	return writeChunkedTo(c.bus, c.batchSize, data)
+}
+
+func writeChunkedTo[T interface{ Write([]byte) (int, error) }](writer T, batchSize uint, data []byte) error {
+	if len(data) < int(batchSize) {
+		_, err := writer.Write(data)
+		return err
 	}
 
-	buffer := data
-	for len(buffer) > 0 {
-		if len(buffer) > int(c.batchSize) {
-			if _, err = c.bus.Write(buffer[:c.batchSize]); err != nil {
-				return
-			}
-			buffer = buffer[c.batchSize:]
-		} else {
-			if _, err = c.bus.Write(buffer); err != nil {
-				return
-			}
-			buffer = nil
+	for len(data) > 0 {
+		chunk := len(data)
+		if chunk > int(batchSize) {
+			chunk = int(batchSize)
 		}
+		if _, err := writer.Write(data[:chunk]); err != nil {
+			return err
+		}
+		data = data[chunk:]
 	}
-	return
+	return nil
 }
 
 func (c *spiConn) SetDataLow(v bool) {

@@ -9,7 +9,7 @@ Single-goroutine Go benchmarks for RGBA-to-XRGB8888 conversion at 400×1280:
 | Test system | Optimized path | Scalar path | Gain |
 | --- | ---: | ---: | ---: |
 | Raspberry Pi 3 | 2.61 ms | 19.23 ms | 7.4× |
-| Apple M2 | 60.4 µs | 991 µs | 16.4× |
+| Apple M2 | 56.6 µs | 841.9 µs | 14.9× |
 | AMD Ryzen 9 7900 | 59.9 µs | 712 µs | 11.9× |
 | Intel N100 | 131 µs | 1.52 ms | 11.6× |
 

@@ -1,7 +1,7 @@
 #include "textflag.h"
 
-// fillSIMDARM64 repeats pattern across dst in 16-byte NEON stores.
-TEXT ·fillSIMDARM64(SB), NOSPLIT, $0-40
+// fillSIMD repeats pattern across dst in 16-byte NEON stores.
+TEXT ·fillSIMD(SB), NOSPLIT, $0-40
 	MOVD dst_base+0(FP), R0
 	MOVD dst_len+8(FP), R1
 	MOVD pattern+24(FP), R2

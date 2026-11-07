@@ -1,8 +1,10 @@
 # Pixel images
 
 The `pixel` package provides packed monochrome, grayscale, and RGB images that
-implement Go's image interfaces. The image `Fill` methods use NEON on ARM64 and
-SSE2 on amd64, with a scalar fallback for other architectures. The optimized
+implement Go's image interfaces. The image `Fill` methods call direct assembly entry points on ARM64 and amd64.
+ARM64 repeats the pattern with `VDUP` and writes 16-byte vectors with `VST1`;
+amd64 uses `PUNPCKLQDQ` and 16-byte `MOVOU` stores. Other architectures use
+the scalar fill loop. The optimized
 path also avoids per-pixel temporary allocations when filling 16-bit images.
 
 ## Fill performance
@@ -12,12 +14,12 @@ Single-goroutine Go benchmarks for filling Gray4 and CRGB16 buffers at
 column uses the original Go loops: a per-byte write for Gray4 and a repeated
 two-byte copy for CRGB16.
 
-| Test host | Format | Optimized path | SIMD time | Scalar time | Gain |
+| Test host | Format | Vector path | Vector time | Scalar time | Gain |
 | --- | --- | --- | ---: | ---: | ---: |
 | Raspberry Pi 3, Linux ARM64 | Gray4 | NEON | 110 µs | 1.31 ms | 11.9× |
 | Raspberry Pi 3, Linux ARM64 | CRGB16 | NEON | 628 µs | 28.8 ms | 45.9× |
-| Apple M2, macOS ARM64 | Gray4 | NEON | 5.43 µs | 75.9 µs | 14.0× |
-| Apple M2, macOS ARM64 | CRGB16 | NEON | 21.7 µs | 1.09 ms | 50.1× |
+| Apple M2, macOS ARM64 | Gray4 | NEON | 5.58 µs | 74.4 µs | 13.3× |
+| Apple M2, macOS ARM64 | CRGB16 | NEON | 22.8 µs | 1.06 ms | 46.6× |
 | AMD Ryzen 9 7900, Linux x86_64 | Gray4 | SSE2 | 6.16 µs | 48.2 µs | 7.8× |
 | AMD Ryzen 9 7900, Linux x86_64 | CRGB16 | SSE2 | 25.2 µs | 602 µs | 23.9× |
 | Intel N100, Linux x86_64 | Gray4 | SSE2 | 10.9 µs | 113 µs | 10.4× |
