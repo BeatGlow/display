@@ -33,7 +33,7 @@ type linuxFrameBuffer struct {
 	order      binary.ByteOrder
 }
 
-// Open a Linux FrameBuffer device (fbdev) by name, typically /dev/fb[0..x].
+// Open opens a Linux framebuffer device by name, typically /dev/fb0.
 func Open(name string) (display.Display, error) {
 	if name == "" {
 		name = "/dev/fb0"

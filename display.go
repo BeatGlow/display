@@ -1,4 +1,3 @@
-// Package display contains drivers for hardware displays.
 package display
 
 import (
@@ -9,25 +8,34 @@ import (
 	"periph.io/x/conn/v3/gpio"
 )
 
-// Errors
+// Errors returned by display drivers and connection constructors.
 var (
-	ErrBounds   = errors.New("display: out of bounds")
+	// ErrBounds indicates that a requested display region is outside its bounds.
+	ErrBounds = errors.New("display: out of bounds")
+	// ErrNotReady indicates that a display did not become ready in time.
 	ErrNotReady = errors.New("display: ready timeout")
+	// ErrResetPin indicates that the configured reset pin is invalid; it wraps an [InvalidPin].
 	ErrResetPin = InvalidPin{"reset"}
-	ErrDCPin    = InvalidPin{"data/command (DC)"}
+	// ErrDCPin indicates that the configured data/command pin is invalid; it wraps an [InvalidPin].
+	ErrDCPin = InvalidPin{"data/command (DC)"}
 )
 
-// Rotation defines pixel rotation.
+// Rotation defines the orientation of display pixels.
 type Rotation uint8
 
-// Supported rotations.
+// Supported display rotations.
 const (
+	// NoRotation keeps the display in its native orientation.
 	NoRotation Rotation = iota
-	Rotate90            // Rotate 90° clock wise
-	Rotate180           // Rotate 180°
-	Rotate270           // Rotate 270° clock wise
+	// Rotate90 rotates the display 90 degrees clockwise.
+	Rotate90
+	// Rotate180 rotates the display 180 degrees.
+	Rotate180
+	// Rotate270 rotates the display 270 degrees clockwise.
+	Rotate270
 )
 
+// String returns the rotation as a human-readable angle.
 func (r Rotation) String() string {
 	switch r % 4 {
 	case Rotate90:
@@ -45,49 +53,49 @@ func (r Rotation) String() string {
 type Display interface {
 	draw.Image
 
-	// String gives a description of the display.
+	// String returns a description of the display.
 	String() string
 
-	// Close the display driver.
+	// Close releases the display driver resources.
 	Close() error
 
-	// Clear the display buffer.
+	// Clear sets every pixel in the display buffer to black.
 	Clear()
 
-	// Fill the display buffer with a single color.
+	// Fill sets every pixel in the display buffer to one color.
 	Fill(color.Color)
 
-	// Show toggles the display on or off.
+	// Show turns the display output on or off.
 	Show(bool) error
 
-	// SetContrast adjusts the contrast level.
+	// SetContrast sets the display contrast level.
 	SetContrast(level uint8) error
 
-	// SetRotation adjusts the pixel rotation.
+	// SetRotation sets the display pixel orientation.
 	SetRotation(Rotation) error
 
-	// Refresh redraws the display.
+	// Refresh writes the display buffer to the device.
 	Refresh() error
 }
 
 // Config is the display configuration.
 type Config struct {
-	// Width of the display in pixels.
+	// Width is the display width in pixels.
 	Width int
 
-	// Height of the display in pixels.
+	// Height is the display height in pixels.
 	Height int
 
-	// Rotation of the display.
+	// Rotation is the display orientation.
 	Rotation Rotation
 
-	// UseMono sets 1-color monochrome mode on displays that support grayscale.
+	// UseMono selects monochrome mode on displays that support grayscale.
 	UseMono bool
 
-	// Reset pin
+	// Reset is the optional display reset output pin.
 	Reset gpio.PinOut
 
-	// Backlight pin
+	// Backlight is the optional display backlight output pin.
 	Backlight gpio.PinOut
 }
 

@@ -1,3 +1,5 @@
-// Package framebuffer selects an available DRM/KMS or fbdev output backend.
-// It tries DRM/KMS first, then Linux fbdev.
+/*
+Package framebuffer opens a [kms] display when available, then falls back to
+Linux [fbdev].
+*/
 package framebuffer

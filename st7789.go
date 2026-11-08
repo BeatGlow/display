@@ -116,6 +116,7 @@ type st7789 struct {
 	crgb16Display
 }
 
+// ST7789 initializes and returns a display using an ST7789 controller.
 func ST7789(c Conn, config *Config) (Display, error) {
 	// Update mode and speed
 	if spi, ok := c.(SPI); ok {

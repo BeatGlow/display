@@ -17,31 +17,35 @@ import (
 	"github.com/BeatGlow/display/conn"
 )
 
+// InvalidPin reports a missing or unusable GPIO pin by name.
 type InvalidPin struct {
+	// Name identifies the invalid pin.
 	Name string
 }
 
+// Error returns a description of the invalid pin.
 func (err InvalidPin) Error() string {
 	return fmt.Sprintf("display: %s GPIO pin is invalid", err.Name)
 }
 
 // Conn is the connection interface for communicating with hardware.
 type Conn interface {
+	// String returns a description of the connection.
 	String() string
 
-	// Close the connection.
+	// Close releases the connection.
 	Close() error
 
-	// Reset sets the reset pin to the provided level.
+	// Reset sets the display reset pin to the provided level.
 	Reset(gpio.Level) error
 
-	// Command sends a command byte with optional arguments.
+	// Command sends a command byte and optional arguments.
 	Command(byte, ...byte) error
 
-	// Data sends data bytes.
+	// Data sends data bytes to the display.
 	Data(...byte) error
 
-	// Interface is the underlying interface.
+	// Interface returns the underlying connection interface.
 	Interface() any
 
 	// Send data over the serial interface.
@@ -51,19 +55,21 @@ type Conn interface {
 	//SendByte(data byte, isCommand bool) error
 }
 
+// SPI extends [Conn] with controls for an SPI connection.
 type SPI interface {
 	Conn
 
-	// SetDataLow changes the data/command direction behaviour.
+	// SetDataLow sets whether the data/command signal is low for data bytes.
 	SetDataLow(bool)
 
-	// SetMode requests a SPI mode.
+	// SetMode requests an [conn.SPIMode].
 	SetMode(mode conn.SPIMode) error
 
 	// SetMaxSpeed requests a SPI speed.
 	SetMaxSpeed(hz int) error
 }
 
+// Parallel is a connection interface for parallel displays.
 type Parallel interface {
 	Conn
 }
@@ -162,11 +168,11 @@ type I2CConfig struct {
 	// Addr is the I²C address.
 	Addr uint8
 
-	// Reset pin.
+	// Reset is the optional display reset output pin.
 	Reset gpio.PinOut
 }
 
-// DefaultI2CConfig are the default configuration values for I²C connections.
+// DefaultI2CConfig contains the default values for I²C connections.
 var DefaultI2CConfig = I2CConfig{
 	Device: -1,
 	Addr:   0x3c,
@@ -177,6 +183,8 @@ type i2cConn struct {
 	reset gpio.PinOut
 }
 
+// OpenI2C opens an I²C connection using config. A nil config uses
+// [DefaultI2CConfig].
 func OpenI2C(config *I2CConfig) (Conn, error) {
 	if config == nil {
 		config = new(I2CConfig)
@@ -217,18 +225,27 @@ func (c *i2cConn) Reset(level gpio.Level) error {
 
 // SPIConfig describes the SPI bus configuration.
 type SPIConfig struct {
-	Bus       int
-	Device    int
-	Mode      uint8
-	SpeedHz   uint32
-	DataLow   bool
+	// Bus selects the SPI bus number.
+	Bus int
+	// Device selects the SPI chip-select device number.
+	Device int
+	// Mode selects the SPI clock mode, using the values in [conn.SPIMode].
+	Mode uint8
+	// SpeedHz sets the requested SPI clock speed.
+	SpeedHz uint32
+	// DataLow sets whether the data/command pin is low for data bytes.
+	DataLow bool
+	// BatchSize limits the size of each SPI write.
 	BatchSize uint
-	Reset     gpio.PinOut
-	DC        gpio.PinOut
-	CE        gpio.PinOut
+	// Reset is the display reset output pin.
+	Reset gpio.PinOut
+	// DC is the display data/command output pin.
+	DC gpio.PinOut
+	// CE is an optional chip-enable output pin.
+	CE gpio.PinOut
 }
 
-// DefaultSPIConfig are the default configuration values for SPI connections.
+// DefaultSPIConfig contains the default values for SPI connections.
 var DefaultSPIConfig = SPIConfig{
 	Bus:       0,
 	Device:    0,
@@ -268,6 +285,8 @@ type spiConn struct {
 	batchSize uint
 }
 
+// OpenSPI opens an SPI connection using config. A nil config uses
+// [DefaultSPIConfig].
 func OpenSPI(config *SPIConfig) (Conn, error) {
 	if config == nil {
 		config = new(SPIConfig)
@@ -437,16 +456,16 @@ func (c *spiConn) SetMaxSpeed(hz int) error {
 
 // ParallelConfig is the configuration for a parallel (aka 8080) connection.
 type ParallelConfig struct {
-	// Data pins.
+	// D0 through D7 are the eight parallel data output pins.
 	D0, D1, D2, D3, D4, D5, D6, D7 gpio.PinOut
 
-	// Write pin.
+	// Write is the parallel write strobe output pin.
 	Write gpio.PinOut
 
-	// Ready pin.
+	// Ready is an optional input that is high when the display can accept data.
 	Ready gpio.PinIn
 
-	// UpdateFrequency is the maximum update frequency.
+	// UpdateFrequency limits the rate of parallel writes.
 	UpdateFrequency physic.Frequency
 }
 

@@ -38,6 +38,7 @@ type gp1294 struct {
 	pix           []byte
 }
 
+// GP1294 initializes and returns a display using a GP1294 controller.
 func GP1294(c Conn, config *Config) (Display, error) {
 	d := &gp1294{conn: c}
 

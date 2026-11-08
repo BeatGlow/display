@@ -1,4 +1,3 @@
-// Command display-test-framebuffer runs a visual and API check on a framebuffer output.
 package main
 
 import (

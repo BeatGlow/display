@@ -10,17 +10,17 @@ func Line(dst Image, a, b image.Point, c color.Color) {
 	bresenham(dst, a.X, a.Y, b.X, b.Y, c)
 }
 
-// HorizontalLine draws a line between (x,y) and (x+w,y).
+// HorizontalLine draws a line from (x, y) through (x+w-1, y).
 func HorizontalLine(dst Image, x, y, w int, c color.Color) {
 	bresenham(dst, x, y, x+w-1, y, c)
 }
 
-// VerticalLine draws a line between (x,y) and (x,y+h).
+// VerticalLine draws a line from (x, y) through (x, y+h-1).
 func VerticalLine(dst Image, x, y, h int, c color.Color) {
 	bresenham(dst, x, y, x, y+h-1, c)
 }
 
-// Rectangle draws a rectangle.
+// Rectangle draws the outline of rect.
 func Rectangle(dst Image, rect image.Rectangle, c color.Color) {
 	if rect.Empty() {
 		return

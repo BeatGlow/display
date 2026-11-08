@@ -84,6 +84,7 @@ type st7735 struct {
 	backlight gpio.PinOut
 }
 
+// ST7735 initializes and returns a display using an ST7735 controller.
 func ST7735(c Conn, config *Config) (Display, error) {
 	// Update mode and speed
 	if spi, ok := c.(SPI); ok {

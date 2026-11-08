@@ -25,6 +25,7 @@ type sh1122 struct {
 	halted bool
 }
 
+// SH1122 initializes and returns a display using an SH1122 controller.
 func SH1122(c Conn, config *Config) (Display, error) {
 	// Update mode and speed
 	if spi, ok := c.(SPI); ok {

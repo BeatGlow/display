@@ -9,21 +9,24 @@ import (
 // Mode is the IOCTL mode.
 type Mode uint8
 
-// Modes
 const (
+	// None indicates that an ioctl command transfers no data.
 	None Mode = iota
+	// Write indicates that the caller writes data to the device.
 	Write
+	// Read indicates that the caller reads data from the device.
 	Read
 )
 
-// Command to be sent over ioctl.
+// Command is an encoded ioctl request.
 type Command uintptr
 
+// String returns a readable representation of the ioctl request.
 func (c Command) String() string {
 	return fmt.Sprintf("ioctl (%d bytes) 0x%04x", c>>16&ioctlSizeMask, uintptr(c&0xffff))
 }
 
-// Do executes the ioctl call.
+// Do executes the ioctl [Command] using ptr as its argument.
 func Do(fd uintptr, command Command, ptr any) error {
 	var p uintptr
 
@@ -48,7 +51,7 @@ func Call(fd, command, arg uintptr) error {
 	return nil
 }
 
-// Pointer to a value.
+// Pointer encodes an ioctl request with [Encode] for a value of the same type as ref.
 func Pointer(mode Mode, ref any, cmd uintptr) Command {
 	size := uint16(reflect.TypeOf(ref).Elem().Size())
 	return Encode(mode, size, cmd)

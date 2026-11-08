@@ -20,6 +20,7 @@ type ssd1306 struct {
 	colEnd   byte
 }
 
+// SSD1306 initializes and returns a display using an SSD1306 controller.
 func SSD1306(conn Conn, config *Config) (Display, error) {
 	d := &ssd1306{
 		monoDisplay: monoDisplay{
