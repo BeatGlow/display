@@ -41,8 +41,11 @@ func Rectangle(dst Image, rect image.Rectangle, c color.Color) {
 
 // RoundedRectangle draws a rectangle with radius pixels rounded corners.
 func RoundedRectangle(dst Image, rect image.Rectangle, radius int, c color.Color) {
+	if rect.Empty() {
+		return
+	}
 	var (
-		r = radius
+		r = boundedRadius(radius, rect.Dx(), rect.Dy())
 		x = rect.Min.X
 		y = rect.Min.Y
 		w = rect.Dx()
@@ -71,8 +74,11 @@ func Box(dst Image, rect image.Rectangle, c color.Color) {
 
 // RoundedBox draws a filled rectangle with radius pixels rounded corners.
 func RoundedBox(dst Image, rect image.Rectangle, radius int, c color.Color) {
+	if rect.Empty() {
+		return
+	}
 	var (
-		r = radius
+		r = boundedRadius(radius, rect.Dx(), rect.Dy())
 		x = rect.Min.X
 		y = rect.Min.Y
 		w = rect.Dx()
@@ -84,6 +90,20 @@ func RoundedBox(dst Image, rect image.Rectangle, radius int, c color.Color) {
 	}, c)
 	filledRoundedCorner(dst, x+w-r-1, y+r, r, 1, h-2*r-1, c)
 	filledRoundedCorner(dst, x+r, y+r, r, 2, h-2*r-1, c)
+}
+
+func boundedRadius(radius, width, height int) int {
+	if radius < 0 {
+		return 0
+	}
+	maxRadius := width / 2
+	if height/2 < maxRadius {
+		maxRadius = height / 2
+	}
+	if radius > maxRadius {
+		return maxRadius
+	}
+	return radius
 }
 
 func roundedCorner(dst Image, x0, y0, radius, quadrant int, c color.Color) {
