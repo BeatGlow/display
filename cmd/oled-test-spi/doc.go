@@ -1,4 +1,4 @@
 /*
-Package main implements oled-test-spi, which opens and reports an SPI device.
+Command oled-test-spi opens an SPI device and reports the connection.
 */
 package main
