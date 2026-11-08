@@ -55,6 +55,57 @@ func TestCRGB16Image(t *testing.T) {
 	}, CRGB16Model)
 }
 
+func TestPackedImageStridesAtStorageBoundaries(t *testing.T) {
+	tests := []struct {
+		name string
+		make func(int, int) (Image, Buffer)
+		rows func(int, int) (stride, rows int)
+		dims []image.Point
+	}{
+		{
+			name: "mono",
+			make: func(w, h int) (Image, Buffer) { img := NewMonoImage(w, h); return img, img.Buffer },
+			rows: func(w, h int) (int, int) { return (w + 7) / 8, h },
+			dims: []image.Point{image.Pt(0, 1), image.Pt(1, 1), image.Pt(7, 2), image.Pt(8, 2), image.Pt(9, 3)},
+		},
+		{
+			name: "mono-vertical",
+			make: func(w, h int) (Image, Buffer) { img := NewMonoVerticalLSBImage(w, h); return img, img.Buffer },
+			rows: func(w, h int) (int, int) { return w, (h + 7) / 8 },
+			dims: []image.Point{image.Pt(1, 0), image.Pt(3, 1), image.Pt(3, 7), image.Pt(3, 8), image.Pt(3, 9)},
+		},
+		{
+			name: "gray2",
+			make: func(w, h int) (Image, Buffer) { img := NewGray2Image(w, h); return img, img.Buffer },
+			rows: func(w, h int) (int, int) { return (w + 3) / 4, h },
+			dims: []image.Point{image.Pt(0, 2), image.Pt(1, 2), image.Pt(3, 2), image.Pt(4, 2), image.Pt(5, 2)},
+		},
+		{
+			name: "gray4",
+			make: func(w, h int) (Image, Buffer) { img := NewGray4Image(w, h); return img, img.Buffer },
+			rows: func(w, h int) (int, int) { return (w + 1) / 2, h },
+			dims: []image.Point{image.Pt(0, 2), image.Pt(1, 2), image.Pt(2, 2), image.Pt(3, 2)},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, size := range tc.dims {
+				img, storage := tc.make(size.X, size.Y)
+				stride, rows := tc.rows(size.X, size.Y)
+				if storage.Stride != stride {
+					t.Errorf("%v stride = %d, want %d", size, storage.Stride, stride)
+				}
+				if got, min := len(storage.Pix), stride*rows; got < min {
+					t.Errorf("%v storage length = %d, want at least %d", size, got, min)
+				}
+				if got := img.Bounds().Size(); !got.Eq(size) {
+					t.Errorf("%v image bounds size = %v", size, got)
+				}
+			}
+		})
+	}
+}
+
 func testImage(t *testing.T, f func(image.Point) Image, model color.Model) {
 	t.Helper()
 	testCases := []image.Point{

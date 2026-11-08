@@ -191,7 +191,13 @@ func copyGeneric(dst []byte, stride int, src image.Image, bounds image.Rectangle
 
 func validSource(dst []byte, dstStride int, src []byte, srcStride int, bounds image.Rectangle, srcBytesPerPixel int) bool {
 	w, h := bounds.Dx(), bounds.Dy()
-	return srcStride >= w*srcBytesPerPixel && len(src) >= srcStride*h && len(dst) >= dstStride*h
+	if srcStride < w*srcBytesPerPixel || len(dst) < dstStride*h {
+		return false
+	}
+	if h == 0 {
+		return true
+	}
+	return len(src) >= (h-1)*srcStride+w*srcBytesPerPixel
 }
 
 func byteOrder(order binary.ByteOrder) binary.ByteOrder {

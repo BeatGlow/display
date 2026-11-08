@@ -2,6 +2,7 @@ package draw
 
 import (
 	"bytes"
+	"encoding/binary"
 	"image"
 	"image/color"
 	stdDraw "image/draw"
@@ -52,6 +53,222 @@ func TestFastDrawMatchesStandardAndOverlap(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFastDrawUsesBoundsAndStrideOffsets(t *testing.T) {
+	for _, overlap := range []bool{false, true} {
+		name := "separate images"
+		if overlap {
+			name = "overlapping image"
+		}
+		t.Run(name, func(t *testing.T) {
+			got := newStridedCRGB16(image.Rect(10, 20, 15, 24), 4)
+			want := newStridedCRGB16(got.Bounds(), 4)
+			for y := got.Bounds().Min.Y; y < got.Bounds().Max.Y; y++ {
+				for x := got.Bounds().Min.X; x < got.Bounds().Max.X; x++ {
+					c := pixel.CRGB16{V: uint16((y-got.Bounds().Min.Y)*17 + x - got.Bounds().Min.X)}
+					got.Set(x, y, c)
+					want.Set(x, y, c)
+				}
+			}
+			r := image.Rect(11, 21, 15, 24)
+			sp := image.Pt(10, 20)
+			var src image.Image = newStridedCRGB16(image.Rect(10, 20, 15, 24), 6)
+			if overlap {
+				src = got
+				sp = image.Pt(10, 20)
+			}
+			if distinct, ok := src.(*stridedCRGB16); ok && !overlap {
+				for y := distinct.Bounds().Min.Y; y < distinct.Bounds().Max.Y; y++ {
+					for x := distinct.Bounds().Min.X; x < distinct.Bounds().Max.X; x++ {
+						distinct.Set(x, y, pixel.CRGB16{V: uint16(0x400 + (y-distinct.Bounds().Min.Y)*17 + x - distinct.Bounds().Min.X)})
+					}
+				}
+			}
+			if overlap {
+				wantSrc := newStridedCRGB16(got.Bounds(), 4)
+				copy(wantSrc.pix, got.pix)
+				Draw(got, r, src, sp, Src)
+				stdDraw.Draw(want, r, wantSrc, sp, stdDraw.Src)
+			} else {
+				Draw(got, r, src, sp, Src)
+				stdDraw.Draw(want, r, src, sp, stdDraw.Src)
+			}
+			if !bytes.Equal(got.pix, want.pix) {
+				for y := got.Bounds().Min.Y; y < got.Bounds().Max.Y; y++ {
+					for x := got.Bounds().Min.X; x < got.Bounds().Max.X; x++ {
+						if got.At(x, y) != want.At(x, y) {
+							t.Errorf("pixel (%d,%d): got %v want %v", x, y, got.At(x, y), want.At(x, y))
+						}
+					}
+				}
+				t.Fatal("fast draw differs from image/draw with offset bounds and padded stride")
+			}
+		})
+	}
+}
+
+func TestFastUniformAndRGBAUseDestinationOffsets(t *testing.T) {
+	for _, sourceKind := range []string{"uniform", "rgba"} {
+		t.Run(sourceKind, func(t *testing.T) {
+			got := newStridedCRGB16(image.Rect(10, 20, 15, 24), 6)
+			want := newStridedCRGB16(got.Bounds(), 6)
+			for y := got.Bounds().Min.Y; y < got.Bounds().Max.Y; y++ {
+				for x := got.Bounds().Min.X; x < got.Bounds().Max.X; x++ {
+					c := pixel.CRGB16{V: uint16((y-got.Bounds().Min.Y)*17 + x - got.Bounds().Min.X)}
+					got.Set(x, y, c)
+					want.Set(x, y, c)
+				}
+			}
+			var src image.Image
+			sp := image.Pt(2, 1)
+			if sourceKind == "uniform" {
+				src = image.NewUniform(color.NRGBA{R: 211, G: 83, B: 149, A: 121})
+				sp = image.Pt(0, 0)
+			} else {
+				src = image.NewRGBA(image.Rect(1, 1, 7, 6))
+				rgba := src.(*image.RGBA)
+				for y := rgba.Bounds().Min.Y; y < rgba.Bounds().Max.Y; y++ {
+					for x := rgba.Bounds().Min.X; x < rgba.Bounds().Max.X; x++ {
+						rgba.Set(x, y, color.RGBA{R: uint8(x*31 + y), G: uint8(y*47 + x), B: uint8(x*13 + y*19), A: uint8(70 + x*9)})
+					}
+				}
+			}
+			r := image.Rect(9, 21, 15, 25)
+			Draw(got, r, src, sp, Src)
+			stdDraw.Draw(want, r, src, sp, stdDraw.Src)
+			if !bytes.Equal(got.pix, want.pix) {
+				t.Fatal("fast draw differs from image/draw with nonzero destination bounds and padded stride")
+			}
+		})
+	}
+}
+
+func TestFastDrawHandlesDifferentByteOrders(t *testing.T) {
+	dst := newStridedCRGB16Order(image.Rect(0, 0, 4, 3), 2, binary.BigEndian)
+	src := newStridedCRGB16Order(image.Rect(0, 0, 4, 3), 4, binary.LittleEndian)
+	want := newStridedCRGB16Order(dst.Bounds(), 2, binary.BigEndian)
+	for y := 0; y < 3; y++ {
+		for x := 0; x < 4; x++ {
+			src.Set(x, y, pixel.CRGB16{V: uint16(0x1200 + y*16 + x)})
+		}
+	}
+	Draw(dst, dst.Bounds(), src, image.Point{}, Src)
+	stdDraw.Draw(want, want.Bounds(), src, image.Point{}, stdDraw.Src)
+	if !bytes.Equal(dst.pix, want.pix) {
+		t.Fatal("draw with differing source and destination byte orders differs from image/draw")
+	}
+}
+
+func TestFastDrawFallsBackForMalformedPixelViews(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		badView  string
+		badImage string
+	}{
+		{"destination bounds mismatch", "bounds", "destination"},
+		{"destination short storage", "storage", "destination"},
+		{"source bounds mismatch", "bounds", "source"},
+		{"source short storage", "storage", "source"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bounds := image.Rect(0, 0, 5, 4)
+			gotSrc := newMalformedFastRGBA(bounds, tc.badImage == "source", tc.badView)
+			wantSrc := gotSrc.RGBA
+			for y := 0; y < bounds.Dy(); y++ {
+				for x := 0; x < bounds.Dx(); x++ {
+					c := color.RGBA{R: uint8(21 + x*23), G: uint8(11 + y*37), B: uint8(x*9 + y*17), A: 255}
+					gotSrc.SetRGBA(x, y, c)
+				}
+			}
+
+			var got, want Image
+			if tc.badImage == "destination" {
+				got = newMalformedFastRGBA(bounds, true, tc.badView)
+				want = image.NewRGBA(bounds)
+			} else {
+				got = newStridedCRGB16(bounds, 4)
+				want = newStridedCRGB16(bounds, 4)
+			}
+			for y := 0; y < bounds.Dy(); y++ {
+				for x := 0; x < bounds.Dx(); x++ {
+					c := color.RGBA{R: uint8(x * 19), G: uint8(y * 29), B: uint8(x*7 + y*13), A: 255}
+					got.Set(x, y, c)
+					want.Set(x, y, c)
+				}
+			}
+			r, sp := image.Rect(-1, 1, 5, 4), image.Pt(0, 0)
+			Draw(got, r, gotSrc, sp, Src)
+			stdDraw.Draw(want, r, wantSrc, sp, stdDraw.Src)
+			for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+				for x := bounds.Min.X; x < bounds.Max.X; x++ {
+					if got.At(x, y) != want.At(x, y) {
+						t.Fatalf("pixel (%d,%d): got %v want %v", x, y, got.At(x, y), want.At(x, y))
+					}
+				}
+			}
+		})
+	}
+}
+
+type malformedFastRGBA struct {
+	*image.RGBA
+	view pixel.PixelView
+}
+
+func newMalformedFastRGBA(bounds image.Rectangle, malformed bool, fault string) *malformedFastRGBA {
+	img := image.NewRGBA(bounds)
+	viewBounds := bounds
+	stride := bounds.Dx() * 2
+	pix := make([]byte, stride*bounds.Dy())
+	if malformed && fault == "bounds" {
+		viewBounds = viewBounds.Add(image.Pt(1, 0))
+	}
+	if malformed && fault == "storage" {
+		pix = pix[:1]
+	}
+	return &malformedFastRGBA{
+		RGBA: img,
+		view: pixel.PixelView{Pix: pix, Stride: stride, Bounds: viewBounds, Format: pixel.FormatCRGB16, Order: binary.BigEndian},
+	}
+}
+
+func (img *malformedFastRGBA) PixelView() pixel.PixelView { return img.view }
+
+type stridedCRGB16 struct {
+	bounds image.Rectangle
+	stride int
+	pix    []byte
+	order  binary.ByteOrder
+}
+
+func newStridedCRGB16(bounds image.Rectangle, padding int) *stridedCRGB16 {
+	return newStridedCRGB16Order(bounds, padding, binary.BigEndian)
+}
+
+func newStridedCRGB16Order(bounds image.Rectangle, padding int, order binary.ByteOrder) *stridedCRGB16 {
+	stride := bounds.Dx()*2 + padding
+	return &stridedCRGB16{bounds: bounds, stride: stride, pix: make([]byte, stride*bounds.Dy()), order: order}
+}
+
+func (img *stridedCRGB16) ColorModel() color.Model { return pixel.CRGB16Model }
+func (img *stridedCRGB16) Bounds() image.Rectangle { return img.bounds }
+func (img *stridedCRGB16) PixelView() pixel.PixelView {
+	return pixel.PixelView{Pix: img.pix, Stride: img.stride, Bounds: img.bounds, Format: pixel.FormatCRGB16, Order: img.order}
+}
+func (img *stridedCRGB16) At(x, y int) color.Color {
+	if !image.Pt(x, y).In(img.bounds) {
+		return color.Transparent
+	}
+	offset := (y-img.bounds.Min.Y)*img.stride + (x-img.bounds.Min.X)*2
+	return pixel.CRGB16{V: img.order.Uint16(img.pix[offset:])}
+}
+func (img *stridedCRGB16) Set(x, y int, c color.Color) {
+	if !image.Pt(x, y).In(img.bounds) {
+		return
+	}
+	offset := (y-img.bounds.Min.Y)*img.stride + (x-img.bounds.Min.X)*2
+	img.order.PutUint16(img.pix[offset:], pixel.CRGB16Model.Convert(c).(pixel.CRGB16).V)
 }
 
 func BenchmarkBlitCRGB16(b *testing.B) {
