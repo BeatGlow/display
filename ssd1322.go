@@ -115,7 +115,7 @@ func (d *ssd1322) Close() error {
 }
 
 func (d *ssd1322) SetRotation(rotation Rotation) error {
-	return d.baseDisplay.setHardwareRotation(rotation, func(flip bool) error {
+	return d.setHardwareRotation(rotation, func(flip bool) error {
 		remap := byte(0x14) // Existing init: nibble remap + reverse COM scan.
 		if flip {
 			remap = 0x06 // Toggle column and COM remap; keep nibble remap.

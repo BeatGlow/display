@@ -120,7 +120,7 @@ func (d *sh1106) init(config *Config) (err error) {
 // SetRotation uses the controller's segment and COM remaps for 180 degrees;
 // quarter turns use the shared software coordinate mapping.
 func (d *sh1106) SetRotation(rotation Rotation) error {
-	return d.baseDisplay.setHardwareRotation(rotation, func(flip bool) error {
+	return d.setHardwareRotation(rotation, func(flip bool) error {
 		segment, com := byte(ssd1xxxSetSegmentRemap), byte(ssd1xxxSetComScanInc)
 		if flip {
 			segment, com = ssd1xxxSetRemap, ssd1xxxSetComScanDec

@@ -154,7 +154,7 @@ func (d *sh1122) SetContrast(level uint8) error {
 }
 
 func (d *sh1122) SetRotation(rotation Rotation) error {
-	return d.baseDisplay.setHardwareRotation(rotation, func(flip bool) error {
+	return d.setHardwareRotation(rotation, func(flip bool) error {
 		var segment, com byte = ssd1xxxSetRemap, ssd1xxxSetComScanInc
 		if flip {
 			segment, com = ssd1xxxSetSegmentRemap, ssd1xxxSetComScanDec

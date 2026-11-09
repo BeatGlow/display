@@ -100,7 +100,7 @@ func (d *ssd1362) init(config *Config) error {
 }
 
 func (d *ssd1362) SetRotation(rotation Rotation) error {
-	return d.baseDisplay.setHardwareRotation(rotation, func(flip bool) error {
+	return d.setHardwareRotation(rotation, func(flip bool) error {
 		remap := byte(0xC3) // Existing init remap value.
 		if flip {
 			remap = (remap ^ 0x01) | 0x10
