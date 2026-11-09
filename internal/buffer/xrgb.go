@@ -84,6 +84,16 @@ func CopyToXRGBRotatedInto(dst []byte, stride int, src *image.RGBA, nativeBounds
 	if stride > len(dst)/h || src.Stride < sourceBounds.Dx()*4 || sourceEnd > len(src.Pix) || len(scratch) < sourceBounds.Dx()*sourceBounds.Dy()*4 || len(row) < w*4 {
 		return errors.New("buffer: rotated source or destination buffer is too small")
 	}
+	source := src.Pix[src.PixOffset(sourceBounds.Min.X, sourceBounds.Min.Y):]
+	if r%4 == display.Rotate180 && rotateRGBA180(dst, stride, source, src.Stride, w, h) {
+		return nil
+	}
+	if r%4 == display.Rotate90 && rotateRGBA90(dst, stride, source, src.Stride, w, h) {
+		return nil
+	}
+	if r%4 == display.Rotate270 && rotateRGBA270(dst, stride, source, src.Stride, w, h) {
+		return nil
+	}
 	if err := CopyToXRGB(scratch, sourceBounds.Dx()*4, src); err != nil {
 		return err
 	}

@@ -31,6 +31,30 @@ func rotateXRGB180(dst []byte, dstStride int, src []byte, srcStride, width, heig
 	rotateXRGB180Go(dst, dstStride, src, srcStride, width, height)
 }
 
+func rotateRGBA180(dst []byte, dstStride int, src []byte, srcStride, width, height int) bool {
+	if width&3 != 0 {
+		return false
+	}
+	parallelRotateXRGB(dst, dstStride, src, srcStride, width, height, rotateRGBA180ARM64)
+	return true
+}
+
+func rotateRGBA90(dst []byte, dstStride int, src []byte, srcStride, width, height int) bool {
+	if width&3 != 0 || height&3 != 0 {
+		return false
+	}
+	parallelRotateXRGB(dst, dstStride, src, srcStride, width, height, rotateRGBA90ARM64)
+	return true
+}
+
+func rotateRGBA270(dst []byte, dstStride int, src []byte, srcStride, width, height int) bool {
+	if width&3 != 0 || height&3 != 0 {
+		return false
+	}
+	parallelRotateXRGB(dst, dstStride, src, srcStride, width, height, rotateRGBA270ARM64)
+	return true
+}
+
 type rotateXRGBARM64Func func(dst []byte, dstStride int, src []byte, srcStride, width, height, startY, endY int)
 
 func parallelRotateXRGB(dst []byte, dstStride int, src []byte, srcStride, width, height int, rotate rotateXRGBARM64Func) {
@@ -55,3 +79,6 @@ func parallelRotateXRGB(dst []byte, dstStride int, src []byte, srcStride, width,
 func rotateXRGB90ARM64(dst []byte, dstStride int, src []byte, srcStride, width, height, startY, endY int)
 func rotateXRGB270ARM64(dst []byte, dstStride int, src []byte, srcStride, width, height, startY, endY int)
 func rotateXRGB180ARM64(dst []byte, dstStride int, src []byte, srcStride, width, height, startY, endY int)
+func rotateRGBA180ARM64(dst []byte, dstStride int, src []byte, srcStride, width, height, startY, endY int)
+func rotateRGBA90ARM64(dst []byte, dstStride int, src []byte, srcStride, width, height, startY, endY int)
+func rotateRGBA270ARM64(dst []byte, dstStride int, src []byte, srcStride, width, height, startY, endY int)

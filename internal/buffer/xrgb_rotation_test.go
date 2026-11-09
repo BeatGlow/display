@@ -1,6 +1,7 @@
 package buffer
 
 import (
+	"bytes"
 	"encoding/binary"
 	"image"
 	"image/color"
@@ -56,23 +57,28 @@ func TestCopyToXRGBRotatedTiles(t *testing.T) {
 	const width, height = 12, 8
 	native := image.Rect(0, 0, width, height)
 	for _, r := range []display.Rotation{display.Rotate90, display.Rotate180, display.Rotate270} {
-		logical := image.NewRGBA(rotation.Bounds(native, r))
+		logicalBounds := rotation.Bounds(native, r).Add(image.Pt(2, 3))
+		logical := image.NewRGBA(logicalBounds)
 		for y := 0; y < logical.Bounds().Dy(); y++ {
 			for x := 0; x < logical.Bounds().Dx(); x++ {
-				logical.SetRGBA(x, y, color.RGBA{R: uint8(x + 1), G: uint8(y + 2), B: 0x63, A: 0xff})
+				logical.SetRGBA(logicalBounds.Min.X+x, logicalBounds.Min.Y+y, color.RGBA{R: uint8(x + 1), G: uint8(y + 2), B: 0x63, A: 0xff})
 			}
 		}
-		dst := make([]byte, width*height*4)
+		stride := width*4 + 8
+		dst := make([]byte, stride*height)
+		for i := range dst {
+			dst[i] = 0xee
+		}
 		scratch := make([]byte, len(dst))
 		row := make([]byte, width*4)
-		if err := CopyToXRGBRotatedInto(dst, width*4, logical, native, r, scratch, row); err != nil {
+		if err := CopyToXRGBRotatedInto(dst, stride, logical, native, r, scratch, row); err != nil {
 			t.Fatal(err)
 		}
 		for y := 0; y < logical.Bounds().Dy(); y++ {
 			for x := 0; x < logical.Bounds().Dx(); x++ {
 				px, py := rotation.Point(native, r, x, y)
-				c := logical.RGBAAt(x, y)
-				got := dst[py*width*4+px*4 : py*width*4+px*4+4]
+				c := logical.RGBAAt(logicalBounds.Min.X+x, logicalBounds.Min.Y+y)
+				got := dst[py*stride+px*4 : py*stride+px*4+4]
 				var want [4]byte
 				binary.NativeEndian.PutUint32(want[:], uint32(c.R)<<16|uint32(c.G)<<8|uint32(c.B))
 				if string(got) != string(want[:]) {
@@ -80,6 +86,58 @@ func TestCopyToXRGBRotatedTiles(t *testing.T) {
 				}
 			}
 		}
+		for y := 0; y < height; y++ {
+			for _, got := range dst[y*stride+width*4 : (y+1)*stride] {
+				if got != 0xee {
+					t.Fatalf("rotation %v changed row %d padding to %#x", r, y, got)
+				}
+			}
+		}
+	}
+}
+
+func TestCopyToXRGBRotatedLargeFused(t *testing.T) {
+	const width, height = 800, 480
+	native := image.Rect(0, 0, width, height)
+	for _, r := range []display.Rotation{display.Rotate90, display.Rotate180, display.Rotate270} {
+		t.Run(r.String(), func(t *testing.T) {
+			bounds := rotation.Bounds(native, r)
+			src := image.NewRGBA(bounds)
+			for y := 0; y < bounds.Dy(); y++ {
+				row := src.Pix[y*src.Stride:]
+				for x := 0; x < bounds.Dx(); x++ {
+					i := x * 4
+					row[i], row[i+1], row[i+2], row[i+3] = uint8(x), uint8(y), uint8(x^y), 0xff
+				}
+			}
+			stride := width*4 + 16
+			got := bytes.Repeat([]byte{0xee}, stride*height)
+			ref := bytes.Repeat([]byte{0xee}, stride*height)
+			scratch := make([]byte, width*height*4)
+			row := make([]byte, width*4)
+			if err := CopyToXRGBRotatedInto(got, stride, src, native, r, scratch, row); err != nil {
+				t.Fatal(err)
+			}
+			logicalStride := bounds.Dx() * 4
+			if err := CopyToXRGB(scratch, logicalStride, src); err != nil {
+				t.Fatal(err)
+			}
+			switch r {
+			case display.Rotate90:
+				rotateXRGB90Go(ref, stride, scratch, logicalStride, width, height)
+			case display.Rotate180:
+				rotateXRGB180Go(ref, stride, scratch, logicalStride, width, height)
+			default:
+				rotateXRGB270Go(ref, stride, scratch, logicalStride, width, height)
+			}
+			if !bytes.Equal(got, ref) {
+				for i := range got {
+					if got[i] != ref[i] {
+						t.Fatalf("byte %d = %#x; want %#x", i, got[i], ref[i])
+					}
+				}
+			}
+		})
 	}
 }
 

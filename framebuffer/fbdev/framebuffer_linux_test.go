@@ -156,6 +156,22 @@ func TestFramebufferCopyFromRotated(t *testing.T) {
 	}
 }
 
+func TestPackRGBA16UsesByteOrder(t *testing.T) {
+	src := image.NewRGBA(image.Rect(5, 7, 6, 8))
+	src.SetRGBA(5, 7, color.RGBA{R: 83, G: 151, B: 29, A: 255})
+	for _, order := range []binary.ByteOrder{binary.LittleEndian, binary.BigEndian, binary.NativeEndian} {
+		t.Run(fmt.Sprintf("%T", order), func(t *testing.T) {
+			packed := make([]byte, 2)
+			packRGBA16(packed, src, src.Bounds(), pixel.FormatCRGB16, isLittleEndian(order))
+			var want [2]byte
+			order.PutUint16(want[:], 0x54a3)
+			if string(packed) != string(want[:]) {
+				t.Fatalf("packed % x; want % x", packed, want)
+			}
+		})
+	}
+}
+
 func BenchmarkFramebufferSetRotation(b *testing.B) {
 	fb := &linuxFrameBuffer{info: linuxFrameBufferInfo{SmemLen: 800 * 480 * 2, LineLength: 800 * 2},
 		screenInfo: linuxVarScreenInfo{Xres: 800, Yres: 480, XresVirtual: 800, YresVirtual: 480, BitsPerPixel: 16},

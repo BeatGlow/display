@@ -22,38 +22,54 @@ Quarter turns swap the logical width and height. The current KMS backend rotates
 the CPU shadow image into the native scanout buffer during `Refresh`; it does
 not use a DRM plane rotation property.
 
-RGBA-to-XRGB8888 conversion benchmarks at 800×480 on the Raspberry Pi 3
-(ARMv8, Go ARM64, one second per subtest):
+RGBA-to-XRGB8888 benchmarks at 800×480, with three 2-second subtest samples
+on a Raspberry Pi 3 (ARMv8, Go ARM64):
 
 | Rotation | Optimized ARM64 path | Scalar Go reference | Speedup |
 | --- | ---: | ---: | ---: |
-| 90° | 5.98 ms | 24.33 ms | 4.07× |
-| 180° | 3.93 ms | 9.63 ms | 2.45× |
-| 270° | 6.33 ms | 26.17 ms | 4.13× |
+| 90° | 1.65 ms | 24.34 ms | 14.8× |
+| 180° | 1.59 ms | 9.08 ms | 5.7× |
+| 270° | 1.64 ms | 25.56 ms | 15.6× |
 
-The NEON path transposes 4×4 pixel tiles for 90° and 270° across CPU row bands;
-edges use the portable path. For 180°, it mirrors four XRGB pixels per NEON
-vector and reverses row order. Independent row bands run in parallel. These
-conversion-only results allocate about 450–560 B (7 allocations) per frame on
-the Pi 3.
+The no-rotation conversion measured 1.21 ms on the same Pi 3.
+
+The ARM64 NEON path fuses RGBA channel packing with the rotation. It transposes
+4×4 pixel tiles for 90° and 270°, and mirrors four pixels per vector for 180°;
+independent row bands run in parallel. The amd64 path uses fused SSE2 4×4
+transpose tiles for quarter turns and a SIMD mirror for 180°. Both have a
+portable Go fallback for dimensions that do not fit their tile. On the Pi 3,
+the rotated conversion paths allocate 448 B (7 allocations) per frame.
 
 If the producer already supplies packed XRGB8888, it can skip the initial
-RGBA-to-XRGB conversion. On the Pi 3 this reduced the conversion benchmark from
-5.98 to 4.70 ms at 90°, 3.93 to 2.05 ms at 180°, and 6.33 to 4.52 ms at 270°.
+RGBA-to-XRGB conversion. On the Pi 3, the packed-XRGB benchmark measured
+1.73 ms at 90°, 1.41 ms at 180°, and 1.73 ms at 270°.
 Reproduce with `go test ./internal/buffer -run '^$' -bench
-'^BenchmarkCopyToXRGBRotation$' -benchmem -benchtime=1s`.
+'^BenchmarkCopyToXRGBRotation$' -benchmem -benchtime=2s -count=3`.
 
-Full-resolution end-to-end measurements on the Raspberry Pi rig, using the
-same 1280×400 KMS mode, 60 FPS request, and unscaled rotozoom test, with the
-triple-buffered KMS path:
+The same 800×480 RGBA benchmark on an Apple M2 measured 38.2 µs at 0°,
+31.9 µs at 90°, 44.3 µs at 180°, and 31.6 µs at 270°. On an Intel N100 it
+measured 77.3 µs at 0°, 66.4 µs at 90°, 62.6 µs at 180°, and 67.3 µs at 270°.
+The Apple M2 results use two to three 2-second samples; the Intel N100 results
+are one 1-second sample on `cida.maze.network`. These results use NEON on Apple
+Silicon and SSE2 on amd64. The amd64 kernel currently uses 4×4 tiles; libyuv's
+current AVX2 implementation uses larger 8×8
+tiles ([source](https://chromium.googlesource.com/libyuv/libyuv/+/refs/heads/main/source/rotate_argb.cc)),
+which remains a candidate for further porting and measurement.
 
-| Orientation | Frames in 10 s | FPS | Draw average | Refresh average |
+Full-resolution end-to-end measurements on the Raspberry Pi rig, using its
+preferred 400×1280 KMS mode, an unchanged 60 FPS request and unscaled rotozoom
+test, with the triple-buffered KMS path (8 seconds per run):
+
+| Orientation | Frames in 8 s | FPS | Draw average | Refresh average |
 | --- | ---: | ---: | ---: | ---: |
-| 0° | 524 | 52.4 | 14.3 ms | 2.9 ms |
-| 90° | 415 | 41.4 | 14.4 ms | 9.7 ms |
+| 0° | 406 | 50.7 | 15.1 ms | 3.2 ms |
+| 90° | 354 | 44.2 | 14.9 ms | 7.6 ms |
+| 180° | 404 | 50.5 | 15.1 ms | 3.7 ms |
+| 270° | 356 | 44.4 | 14.7 ms | 7.8 ms |
 
-The rotated run reached 79.0% of the no-rotation FPS. It does not meet a
-90–95% target. The rig exposes no 90°/270° fbdev rotation, and its KMS plane
+The 90° and 270° runs reached 87.2% and 87.6% of the no-rotation FPS; 180°
+reached 99.6%. Quarter turns are close to, but still below, the 90–95% target.
+The rig exposes no 90°/270° fbdev rotation, and its KMS plane
 advertises only 0°/180° rotation; this backend currently uses software
 rotation. The KMS backend uses legacy modesetting/page flips and does not yet
 set DRM plane rotation properties, so the rig cannot take a kernel 90° path.

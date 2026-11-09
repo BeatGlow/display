@@ -220,9 +220,15 @@ func (fb *linuxFrameBuffer) CopyFrom(src image.Image) error {
 	} else {
 		fb.row = fb.row[:rowLen]
 	}
-	packRGBA16(fb.scratch, rgba, sourceBounds, view.Format, fb.order == binary.LittleEndian)
+	packRGBA16(fb.scratch, rgba, sourceBounds, view.Format, isLittleEndian(fb.order))
 	copyPackedRotation(view.Pix, view.Stride, fb.scratch, logicalWidth, nativeBounds, fb.rotation, fb.row)
 	return nil
+}
+
+func isLittleEndian(order binary.ByteOrder) bool {
+	var probe [2]byte
+	order.PutUint16(probe[:], 0x0102)
+	return probe[0] == 0x02
 }
 
 func packRGBA16(dst []byte, src *image.RGBA, sourceBounds image.Rectangle, format pixel.PixelFormat, littleEndian bool) {
