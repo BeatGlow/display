@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"image"
 	"image/color"
+	"runtime"
 	"testing"
 
 	"github.com/BeatGlow/display"
@@ -141,6 +142,54 @@ func TestCopyToXRGBRotatedLargeFused(t *testing.T) {
 	}
 }
 
+func TestSIMDRotationHandlersDoNotAllocateAfterWarmup(t *testing.T) {
+	if runtime.GOARCH != "arm64" && runtime.GOARCH != "amd64" {
+		t.Skip("SIMD rotation is only enabled on arm64 and amd64")
+	}
+	const width, height = 800, 480
+	dst := make([]byte, width*height*4)
+	packed := make([]byte, width*height*4)
+	for _, r := range []display.Rotation{display.Rotate90, display.Rotate180, display.Rotate270} {
+		logical := image.NewRGBA(rotation.Bounds(image.Rect(0, 0, width, height), r))
+		scratch := make([]byte, width*height*4)
+		row := make([]byte, width*4)
+		t.Run(r.String(), func(t *testing.T) {
+			runConvenience := func() {
+				if err := CopyToXRGBRotated(dst, width*4, logical, image.Rect(0, 0, width, height), r); err != nil {
+					panic(err)
+				}
+			}
+			runPacked := func() {
+				switch r {
+				case display.Rotate90:
+					rotateXRGB90(dst, width*4, packed, width*4, width, height)
+				case display.Rotate180:
+					rotateXRGB180(dst, width*4, packed, width*4, width, height)
+				case display.Rotate270:
+					rotateXRGB270(dst, width*4, packed, width*4, width, height)
+				}
+			}
+			if err := CopyToXRGBRotatedInto(dst, width*4, logical, image.Rect(0, 0, width, height), r, scratch, row); err != nil {
+				t.Fatal(err) // Warm any reusable workers before measuring.
+			}
+			if got := testing.AllocsPerRun(100, func() {
+				if err := CopyToXRGBRotatedInto(dst, width*4, logical, image.Rect(0, 0, width, height), r, scratch, row); err != nil {
+					panic(err)
+				}
+			}); got != 0 {
+				t.Fatalf("steady-state fused rotation allocations = %v, want 0", got)
+			}
+			if got := testing.AllocsPerRun(100, runPacked); got != 0 {
+				t.Fatalf("steady-state packed rotation allocations = %v, want 0", got)
+			}
+			runConvenience()
+			if got := testing.AllocsPerRun(100, runConvenience); got != 0 {
+				t.Fatalf("steady-state convenience rotation allocations = %v, want 0", got)
+			}
+		})
+	}
+}
+
 func BenchmarkCopyToXRGBRotation(b *testing.B) {
 	const width, height = 800, 480
 	native := image.Rect(0, 0, width, height)
@@ -166,6 +215,18 @@ func BenchmarkCopyToXRGBRotation(b *testing.B) {
 				}
 			}
 		})
+		if r != display.NoRotation {
+			b.Run(r.String()+"-Convenience", func(b *testing.B) {
+				b.SetBytes(int64(width * height * 4))
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					if err := CopyToXRGBRotated(dst, stride, src, native, r); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+		}
 		if r == display.Rotate90 || r == display.Rotate180 || r == display.Rotate270 {
 			logicalStride := src.Bounds().Dx() * 4
 			b.Run(r.String()+"-PackedXRGB", func(b *testing.B) {

@@ -12,6 +12,8 @@ import (
 
 const xrgbBytesPerPixel = 4
 
+var errRotationNeedsScratch = errors.New("buffer: rotation kernel needs scratch buffers")
+
 // CopyToXRGB copies src into a native-endian XRGB8888 scanout buffer. The
 // destination stride is measured in bytes and may include row padding.
 func CopyToXRGB(dst []byte, stride int, src image.Image) error {
@@ -60,6 +62,10 @@ func CopyToXRGBRotated(dst []byte, stride int, src *image.RGBA, nativeBounds ima
 	if src == nil {
 		return errors.New("buffer: source image is nil")
 	}
+	err := CopyToXRGBRotatedInto(dst, stride, src, nativeBounds, r, nil, nil)
+	if !errors.Is(err, errRotationNeedsScratch) {
+		return err
+	}
 	scratch := make([]byte, src.Bounds().Dx()*src.Bounds().Dy()*4)
 	row := make([]byte, nativeBounds.Dx()*4)
 	return CopyToXRGBRotatedInto(dst, stride, src, nativeBounds, r, scratch, row)
@@ -81,7 +87,7 @@ func CopyToXRGBRotatedInto(dst []byte, stride int, src *image.RGBA, nativeBounds
 	}
 	sourceBounds := src.Bounds()
 	sourceEnd := src.PixOffset(sourceBounds.Max.X-1, sourceBounds.Max.Y-1) + 4
-	if stride > len(dst)/h || src.Stride < sourceBounds.Dx()*4 || sourceEnd > len(src.Pix) || len(scratch) < sourceBounds.Dx()*sourceBounds.Dy()*4 || len(row) < w*4 {
+	if stride > len(dst)/h || src.Stride < sourceBounds.Dx()*4 || sourceEnd > len(src.Pix) {
 		return errors.New("buffer: rotated source or destination buffer is too small")
 	}
 	source := src.Pix[src.PixOffset(sourceBounds.Min.X, sourceBounds.Min.Y):]
@@ -93,6 +99,9 @@ func CopyToXRGBRotatedInto(dst []byte, stride int, src *image.RGBA, nativeBounds
 	}
 	if r%4 == display.Rotate270 && rotateRGBA270(dst, stride, source, src.Stride, w, h) {
 		return nil
+	}
+	if len(scratch) < sourceBounds.Dx()*sourceBounds.Dy()*4 || len(row) < w*4 {
+		return errRotationNeedsScratch
 	}
 	if err := CopyToXRGB(scratch, sourceBounds.Dx()*4, src); err != nil {
 		return err
