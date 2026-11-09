@@ -40,6 +40,9 @@ func SSD1306(conn Conn, config *Config) (Display, error) {
 	if err := d.init(config); err != nil {
 		return nil, err
 	}
+	if err := d.SetRotation(config.Rotation); err != nil {
+		return nil, err
+	}
 
 	return d, nil
 }
@@ -124,6 +127,12 @@ func (d *ssd1306) init(config *Config) (err error) {
 	}
 
 	return
+}
+
+// SetRotation uses the controller's segment and COM remaps for 180 degrees;
+// quarter turns use the shared software coordinate mapping.
+func (d *ssd1306) SetRotation(rotation Rotation) error {
+	return d.setHardwareRotation(rotation, func(flip bool) error { return setSegmentComFlip(d.command, flip) })
 }
 
 func (d *ssd1306) Refresh() (err error) {

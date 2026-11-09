@@ -19,6 +19,7 @@ import (
 	"github.com/BeatGlow/display"
 	"github.com/BeatGlow/display/internal/buffer"
 	"github.com/BeatGlow/display/internal/ioctl"
+	"github.com/BeatGlow/display/internal/rotation"
 )
 
 const (
@@ -95,20 +96,24 @@ func Open(config *Config) (display.Display, error) {
 var _ display.Display = (*displayDevice)(nil)
 
 type displayDevice struct {
-	mu          sync.Mutex
-	file        *os.File
-	master      bool
-	closed      bool
-	active      bool
-	modeSet     bool
-	shadow      *image.RGBA
-	mode        modeInfo
-	connectorID uint32
-	crtcID      uint32
-	front       int
-	back        int
-	buffers     [2]scanoutBuffer
-	saved       crtcState
+	mu              sync.Mutex
+	file            *os.File
+	master          bool
+	closed          bool
+	active          bool
+	modeSet         bool
+	shadow          *image.RGBA
+	rotation        display.Rotation
+	rotationScratch []byte
+	rotationRow     []byte
+	mode            modeInfo
+	connectorID     uint32
+	crtcID          uint32
+	front           int
+	pendingIndex    int
+	pendingFlip     bool
+	buffers         [3]scanoutBuffer
+	saved           crtcState
 }
 
 type scanoutBuffer struct {
@@ -143,6 +148,8 @@ func (d *displayDevice) init(config *Config) error {
 	d.connectorID = connector.kernel.connectorID
 	d.mode = mode
 	d.shadow = image.NewRGBA(image.Rect(0, 0, int(mode.hDisplay), int(mode.vDisplay)))
+	d.rotationScratch = make([]byte, int(mode.hDisplay)*int(mode.vDisplay)*4)
+	d.rotationRow = make([]byte, int(mode.hDisplay)*4)
 	crtc, err := d.chooseCRTC(connector, resources)
 	if err != nil {
 		return err
@@ -172,7 +179,7 @@ func (d *displayDevice) init(config *Config) error {
 			return err
 		}
 	}
-	d.front, d.back = 0, 1
+	d.front = 0
 	if err = d.setCRTC(d.buffers[d.front].fbID, mode, []uint32{d.connectorID}); err != nil {
 		return fmt.Errorf("kms: modeset connector %s to %dx%d: %w", connector.name, mode.hDisplay, mode.vDisplay, err)
 	}
@@ -428,7 +435,9 @@ func (d *displayDevice) destroyBuffer(b *scanoutBuffer) error {
 	return first
 }
 
-func (d *displayDevice) Bounds() image.Rectangle     { return d.shadow.Bounds() }
+func (d *displayDevice) Bounds() image.Rectangle {
+	return d.shadow.Bounds()
+}
 func (d *displayDevice) ColorModel() color.Model     { return color.RGBAModel }
 func (d *displayDevice) At(x, y int) color.Color     { return d.shadow.At(x, y) }
 func (d *displayDevice) Set(x, y int, c color.Color) { d.shadow.Set(x, y, c) }
@@ -466,7 +475,7 @@ func (d *displayDevice) Fill(c color.Color) {
 	}
 }
 
-// Refresh page-flips to a completed back buffer and waits for the DRM vblank event.
+// Refresh prepares a back buffer and queues a vblank-synchronized page flip.
 func (d *displayDevice) Refresh() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -476,14 +485,37 @@ func (d *displayDevice) Refresh() error {
 	if !d.active {
 		return errors.New("kms: display is off")
 	}
-	back := &d.buffers[d.back]
-	if err := buffer.CopyToXRGB(back.pix, int(back.pitch), d.shadow); err != nil {
+	backIndex := d.freeBufferIndex()
+	if backIndex < 0 {
+		return errors.New("kms: no free scanout buffer")
+	}
+	back := &d.buffers[backIndex]
+	var err error
+	if d.rotation == display.NoRotation {
+		err = buffer.CopyToXRGB(back.pix, int(back.pitch), d.shadow)
+	} else {
+		err = buffer.CopyToXRGBRotatedInto(back.pix, int(back.pitch), d.shadow,
+			image.Rect(0, 0, int(d.mode.hDisplay), int(d.mode.vDisplay)), d.rotation,
+			d.rotationScratch, d.rotationRow)
+	}
+	if err != nil {
 		return err
+	}
+	if d.pendingFlip {
+		if err := d.waitForPageFlip(); err != nil {
+			return err
+		}
 	}
 	flip := pageFlip{crtcID: d.crtcID, fbID: back.fbID, flags: drmModePageFlipEvent}
 	if err := ioctl.Do(d.file.Fd(), ioctl.Pointer(ioctl.Read|ioctl.Write, &flip, drmModePageFlip), &flip); err != nil {
 		return fmt.Errorf("kms: queue page flip: %w", err)
 	}
+	d.pendingIndex = backIndex
+	d.pendingFlip = true
+	return nil
+}
+
+func (d *displayDevice) waitForPageFlip() error {
 	var event [32]byte
 	for {
 		n, err := d.file.Read(event[:])
@@ -494,10 +526,20 @@ func (d *displayDevice) Refresh() error {
 			return fmt.Errorf("kms: short DRM event (%d bytes)", n)
 		}
 		if binary.LittleEndian.Uint32(event[0:4]) == drmEventFlipComplete && n >= 32 {
-			d.front, d.back = d.back, d.front
+			d.front = d.pendingIndex
+			d.pendingFlip = false
 			return nil
 		}
 	}
+}
+
+func (d *displayDevice) freeBufferIndex() int {
+	for i := range d.buffers {
+		if i != d.front && (!d.pendingFlip || i != d.pendingIndex) {
+			return i
+		}
+	}
+	return -1
 }
 
 func (d *displayDevice) Show(show bool) error {
@@ -508,6 +550,11 @@ func (d *displayDevice) Show(show bool) error {
 	}
 	if show == d.active {
 		return nil
+	}
+	if d.pendingFlip {
+		if err := d.waitForPageFlip(); err != nil {
+			return err
+		}
 	}
 	if show {
 		if err := d.setCRTC(d.buffers[d.front].fbID, d.mode, []uint32{d.connectorID}); err != nil {
@@ -522,9 +569,27 @@ func (d *displayDevice) Show(show bool) error {
 
 func (d *displayDevice) SetContrast(uint8) error { return ErrNotSupported }
 func (d *displayDevice) SetRotation(r display.Rotation) error {
-	if r != display.NoRotation {
-		return ErrNotSupported
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.closed {
+		return os.ErrClosed
 	}
+	r %= 4
+	if r == d.rotation {
+		return nil
+	}
+	nativeBounds := image.Rect(0, 0, int(d.mode.hDisplay), int(d.mode.vDisplay))
+	newBounds := rotation.Bounds(nativeBounds, r)
+	next := image.NewRGBA(newBounds)
+	for y := 0; y < next.Bounds().Dy(); y++ {
+		for x := 0; x < next.Bounds().Dx(); x++ {
+			px, py := rotation.Point(nativeBounds, r, x, y)
+			oldX, oldY := rotation.InversePoint(nativeBounds, d.rotation, px, py)
+			next.Set(x, y, d.shadow.At(oldX, oldY))
+		}
+	}
+	d.shadow = next
+	d.rotation = r
 	return nil
 }
 
@@ -535,14 +600,21 @@ func (d *displayDevice) Close() error {
 		return nil
 	}
 	var first error
+	if d.pendingFlip {
+		first = d.waitForPageFlip()
+	}
 	if d.modeSet && d.master {
 		if d.saved.modeValid != 0 && d.saved.fbID != 0 {
 			if err := d.setCRTCAt(d.saved.fbID, d.saved.mode, d.saved.connectorIDs, d.saved.x, d.saved.y); err != nil {
-				first = err
+				if first == nil {
+					first = err
+				}
 			}
 		} else if d.active {
 			if err := d.setCRTC(0, modeInfo{}, nil); err != nil {
-				first = err
+				if first == nil {
+					first = err
+				}
 			}
 		}
 	}

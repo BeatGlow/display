@@ -11,6 +11,7 @@ import (
 	"unsafe"
 
 	"github.com/BeatGlow/display"
+	"github.com/BeatGlow/display/internal/rotation"
 	"github.com/BeatGlow/display/pixel"
 )
 
@@ -23,14 +24,18 @@ const (
 type linuxFrameBuffer struct {
 	pixel.Buffer
 	pixel.Image
-	f          *os.File
-	name       string
-	mapped     []byte
-	fd         uintptr
-	info       linuxFrameBufferInfo
-	screenInfo linuxVarScreenInfo
-	model      color.Model
-	order      binary.ByteOrder
+	f           *os.File
+	name        string
+	mapped      []byte
+	fd          uintptr
+	info        linuxFrameBufferInfo
+	screenInfo  linuxVarScreenInfo
+	model       color.Model
+	order       binary.ByteOrder
+	nativeImage pixel.Image
+	rotation    display.Rotation
+	scratch     []byte
+	row         []byte
 }
 
 // Open opens a Linux framebuffer device by name, typically /dev/fb0.
@@ -131,25 +136,24 @@ func (fb *linuxFrameBuffer) setMapping(mapped []byte) error {
 func (fb *linuxFrameBuffer) setImage() {
 	switch fb.model {
 	case pixel.CBGR15Model:
-		fb.Image = &pixel.CBGR15Image{Buffer: fb.Buffer, Order: fb.order}
+		fb.nativeImage = &pixel.CBGR15Image{Buffer: fb.Buffer, Order: fb.order}
 	case pixel.CBGR16Model:
-		fb.Image = &pixel.CBGR16Image{Buffer: fb.Buffer, Order: fb.order}
+		fb.nativeImage = &pixel.CBGR16Image{Buffer: fb.Buffer, Order: fb.order}
 	case pixel.CRGB15Model:
-		fb.Image = &pixel.CRGB15Image{
+		fb.nativeImage = &pixel.CRGB15Image{
 			Buffer: fb.Buffer,
 			Order:  fb.order,
 		}
 	case pixel.CRGB16Model:
-		fb.Image = &pixel.CRGB16Image{
+		fb.nativeImage = &pixel.CRGB16Image{
 			Buffer: fb.Buffer,
 			Order:  fb.order,
 		}
 	}
+	fb.applyRotation()
 }
 
-func (fb *linuxFrameBuffer) Bounds() image.Rectangle {
-	return fb.Rect
-}
+func (fb *linuxFrameBuffer) Bounds() image.Rectangle { return fb.Image.Bounds() }
 
 func (fb *linuxFrameBuffer) String() string {
 	return fb.name
@@ -180,6 +184,111 @@ func (fb *linuxFrameBuffer) Fill(c color.Color) {
 	}
 }
 
+// CopyFrom replaces the framebuffer from an image. RGBA sources use a direct
+// packed-pixel copy that applies the current rotation without image interface
+// calls per pixel.
+func (fb *linuxFrameBuffer) CopyFrom(src image.Image) error {
+	if src == nil || fb.nativeImage == nil {
+		return errors.New("fbdev: source image and framebuffer must be available")
+	}
+	if src.Bounds().Size() != fb.Bounds().Size() {
+		return errors.New("fbdev: source image size does not match the display")
+	}
+	rgba, ok := src.(*image.RGBA)
+	if !ok {
+		bounds := src.Bounds()
+		for y := 0; y < bounds.Dy(); y++ {
+			for x := 0; x < bounds.Dx(); x++ {
+				fb.Set(x, y, src.At(bounds.Min.X+x, bounds.Min.Y+y))
+			}
+		}
+		return nil
+	}
+	view := fb.nativeImage.(pixel.FastImage).PixelView()
+	sourceBounds := rgba.Bounds()
+	nativeBounds := fb.nativeImage.Bounds()
+	logicalWidth, logicalHeight := fb.Bounds().Dx(), fb.Bounds().Dy()
+	scratchLen := logicalWidth * logicalHeight * 2
+	if cap(fb.scratch) < scratchLen {
+		fb.scratch = make([]byte, scratchLen)
+	} else {
+		fb.scratch = fb.scratch[:scratchLen]
+	}
+	rowLen := nativeBounds.Dx() * 2
+	if cap(fb.row) < rowLen {
+		fb.row = make([]byte, rowLen)
+	} else {
+		fb.row = fb.row[:rowLen]
+	}
+	packRGBA16(fb.scratch, rgba, sourceBounds, view.Format, isLittleEndian(fb.order))
+	copyPackedRotation(view.Pix, view.Stride, fb.scratch, logicalWidth, nativeBounds, fb.rotation, fb.row)
+	return nil
+}
+
+func isLittleEndian(order binary.ByteOrder) bool {
+	var probe [2]byte
+	order.PutUint16(probe[:], 0x0102)
+	return probe[0] == 0x02
+}
+
+func packRGBA16(dst []byte, src *image.RGBA, sourceBounds image.Rectangle, format pixel.PixelFormat, littleEndian bool) {
+	redShift, greenShift, blueShift := uint(11), uint(5), uint(0)
+	greenBits := uint(6)
+	switch format {
+	case pixel.FormatCRGB15:
+		redShift, greenShift, greenBits = 10, 5, 5
+	case pixel.FormatCBGR15:
+		redShift, greenShift, blueShift, greenBits = 0, 5, 10, 5
+	case pixel.FormatCBGR16:
+		redShift, blueShift = 0, 11
+	}
+	for y := 0; y < sourceBounds.Dy(); y++ {
+		destination := dst[y*sourceBounds.Dx()*2:]
+		source := src.Pix[src.PixOffset(sourceBounds.Min.X, sourceBounds.Min.Y+y):]
+		for x := 0; x < sourceBounds.Dx(); x++ {
+			si := x * 4
+			red, green, blue := source[si], source[si+1], source[si+2]
+			value := uint16(red>>3)<<redShift | uint16(green>>(8-greenBits))<<greenShift | uint16(blue>>3)<<blueShift
+			di := x * 2
+			if littleEndian {
+				destination[di], destination[di+1] = byte(value), byte(value>>8)
+			} else {
+				destination[di], destination[di+1] = byte(value>>8), byte(value)
+			}
+		}
+	}
+}
+
+func copyPackedRotation(dst []byte, dstStride int, src []byte, logicalWidth int, nativeBounds image.Rectangle, r display.Rotation, row []byte) {
+	w, h := nativeBounds.Dx(), nativeBounds.Dy()
+	logicalStride := logicalWidth * 2
+	for y := 0; y < h; y++ {
+		destination := dst[y*dstStride:]
+		switch r {
+		case display.NoRotation:
+			copy(destination[:w*2], src[y*logicalStride:y*logicalStride+w*2])
+		case display.Rotate180:
+			source := src[(h-1-y)*logicalStride:]
+			for x := 0; x < w; x++ {
+				row[x*2], row[x*2+1] = source[(w-1-x)*2], source[(w-1-x)*2+1]
+			}
+			copy(destination[:w*2], row[:w*2])
+		case display.Rotate90:
+			for x := 0; x < w; x++ {
+				offset := x*logicalStride + (h-1-y)*2
+				row[x*2], row[x*2+1] = src[offset], src[offset+1]
+			}
+			copy(destination[:w*2], row[:w*2])
+		case display.Rotate270:
+			for x := 0; x < w; x++ {
+				offset := (w-1-x)*logicalStride + y*2
+				row[x*2], row[x*2+1] = src[offset], src[offset+1]
+			}
+			copy(destination[:w*2], row[:w*2])
+		}
+	}
+}
+
 // Show toggles the display on or off.
 func (fb *linuxFrameBuffer) Show(_ bool) error {
 	return nil
@@ -191,9 +300,53 @@ func (fb *linuxFrameBuffer) SetContrast(level uint8) error {
 }
 
 // SetRotation adjusts the pixel rotation.
-func (fb *linuxFrameBuffer) SetRotation(_ display.Rotation) error {
+
+func (fb *linuxFrameBuffer) SetRotation(rotation display.Rotation) error {
+	fb.rotation = rotation % 4
+	fb.applyRotation()
 	return nil
 }
+
+func (fb *linuxFrameBuffer) applyRotation() {
+	if fb.nativeImage == nil {
+		return
+	}
+	if fb.rotation == display.NoRotation {
+		fb.Image = fb.nativeImage
+		return
+	}
+	fb.Image = &rotatedImage{Image: fb.nativeImage, rotation: fb.rotation}
+}
+
+// rotatedImage maps logical display coordinates onto the native framebuffer.
+type rotatedImage struct {
+	Image    pixel.Image
+	rotation display.Rotation
+}
+
+func (i *rotatedImage) Bounds() image.Rectangle {
+	return rotation.Bounds(i.Image.Bounds(), i.rotation)
+}
+
+func (i *rotatedImage) ColorModel() color.Model {
+	return i.Image.(interface{ ColorModel() color.Model }).ColorModel()
+}
+func (i *rotatedImage) At(x, y int) color.Color {
+	if !image.Pt(x, y).In(i.Bounds()) {
+		return color.Transparent
+	}
+	x, y = rotation.Point(i.Image.Bounds(), i.rotation, x, y)
+	return i.Image.At(x, y)
+}
+func (i *rotatedImage) Set(x, y int, c color.Color) {
+	if !image.Pt(x, y).In(i.Bounds()) {
+		return
+	}
+	x, y = rotation.Point(i.Image.Bounds(), i.rotation, x, y)
+	i.Image.Set(x, y, c)
+}
+func (i *rotatedImage) Fill(c color.Color) { i.Image.Fill(c) }
+func (i *rotatedImage) Clear()             { i.Image.Clear() }
 
 // Refresh redraws the display.
 func (fb *linuxFrameBuffer) Refresh() error {

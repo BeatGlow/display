@@ -44,6 +44,9 @@ func SSD1362(c Conn, config *Config) (Display, error) {
 	if err := d.init(config); err != nil {
 		return nil, err
 	}
+	if err := d.SetRotation(config.Rotation); err != nil {
+		return nil, err
+	}
 	return d, nil
 }
 
@@ -94,6 +97,16 @@ func (d *ssd1362) init(config *Config) error {
 		return err
 	}
 	return d.Show(true)
+}
+
+func (d *ssd1362) SetRotation(rotation Rotation) error {
+	return d.setHardwareRotation(rotation, func(flip bool) error {
+		remap := byte(0xC3) // Existing init remap value.
+		if flip {
+			remap = (remap ^ 0x01) | 0x10
+		}
+		return d.command(0xA0, remap)
+	})
 }
 
 func (d *ssd1362) String() string {

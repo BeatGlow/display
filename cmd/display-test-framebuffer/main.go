@@ -50,6 +50,7 @@ func run() (err error) {
 	connector := flag.String("connector", "", "connected output name, for example HDMI-A-1")
 	width := flag.Int("width", 0, "exact output mode width (default: preferred mode)")
 	height := flag.Int("height", 0, "exact output mode height (default: preferred mode)")
+	rotationDegrees := flag.Int("rotation", 0, "clockwise framebuffer rotation: 0, 90, 180, or 270 degrees")
 	duration := flag.Duration("duration", 0, "run time; 0 runs until interrupted")
 	fps := flag.Int("fps", 60, "animation refresh rate (1-120 Hz; KMS waits for vblank)")
 	screenshot := flag.String("screenshot", "", "write the final framebuffer image as a PNG")
@@ -62,6 +63,11 @@ func run() (err error) {
 	}
 	if *fps < 1 || *fps > 120 {
 		return errors.New("fps must be between 1 and 120")
+	}
+	rotations := map[int]display.Rotation{0: display.NoRotation, 90: display.Rotate90, 180: display.Rotate180, 270: display.Rotate270}
+	rotation, ok := rotations[*rotationDegrees]
+	if !ok {
+		return fmt.Errorf("rotation must be 0, 90, 180, or 270 degrees")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -94,16 +100,19 @@ func run() (err error) {
 		err = errors.Join(err, screen.Close())
 	}()
 
-	bounds := screen.Bounds()
-	if bounds.Empty() {
-		return fmt.Errorf("framebuffer returned empty screen bounds %v", bounds)
-	}
 	logo, err := loadLogo()
 	if err != nil {
 		return err
 	}
 	if err := checkDisplayAPI(screen); err != nil {
 		return err
+	}
+	if err := screen.SetRotation(rotation); err != nil {
+		return fmt.Errorf("set requested %s rotation: %w", rotation, err)
+	}
+	bounds := screen.Bounds()
+	if bounds.Empty() {
+		return fmt.Errorf("framebuffer returned empty screen bounds %v", bounds)
 	}
 
 	fmt.Printf("Testing %s (requested backend: %s)\n", screen, *backend)
@@ -266,11 +275,27 @@ func checkDisplayAPI(screen display.Display) error {
 	if err := screen.SetContrast(128); err != nil && !errors.Is(err, kms.ErrNotSupported) {
 		return fmt.Errorf("set contrast: %w", err)
 	}
-	if err := screen.SetRotation(display.Rotate90); err != nil && !errors.Is(err, kms.ErrNotSupported) {
-		return fmt.Errorf("set 90-degree rotation: %w", err)
-	}
-	if err := screen.SetRotation(display.NoRotation); err != nil {
-		return fmt.Errorf("restore no rotation: %w", err)
+	nativeBounds := screen.Bounds()
+	for _, rotation := range []display.Rotation{display.Rotate90, display.Rotate180, display.Rotate270} {
+		if err := screen.SetRotation(rotation); err != nil {
+			if errors.Is(err, kms.ErrNotSupported) {
+				continue
+			}
+			return fmt.Errorf("set %s rotation: %w", rotation, err)
+		}
+		want := nativeBounds.Size()
+		if rotation == display.Rotate90 || rotation == display.Rotate270 {
+			want = image.Pt(nativeBounds.Dy(), nativeBounds.Dx())
+		}
+		if got := screen.Bounds().Size(); got != want {
+			return fmt.Errorf("%s rotation bounds %v; want %v", rotation, got, want)
+		}
+		if err := screen.SetRotation(display.NoRotation); err != nil {
+			return fmt.Errorf("restore no rotation after %s: %w", rotation, err)
+		}
+		if got := screen.Bounds().Size(); got != nativeBounds.Size() {
+			return fmt.Errorf("restored bounds %v; want %v", got, nativeBounds.Size())
+		}
 	}
 
 	probe := screen.Bounds().Min

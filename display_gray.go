@@ -25,6 +25,7 @@ func (d *gray4Display) init(config *Config) error {
 	d.Image = pixel.NewGray4Image(config.Width, config.Height)
 	d.width = config.Width
 	d.height = config.Height
-	d.rotation = config.Rotation
+	d.rotation = config.Rotation % 4
+	d.bufferRotation = d.rotation
 	return nil
 }

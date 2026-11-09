@@ -148,10 +148,9 @@ func (d *gp1247ai) Refresh() error {
 }
 
 func (d *gp1247ai) SetRotation(rotation Rotation) error {
-	d.rotation = rotation
-	return nil
+	return d.monoDisplay.SetRotation(rotation)
 }
 
 func (d *gp1247ai) Bounds() image.Rectangle {
-	return d.Image.Bounds()
+	return rotationBounds(d.Image.Bounds(), d.rotation)
 }

@@ -4,8 +4,13 @@ package kms
 
 import (
 	"errors"
+	"image"
+	"image/color"
 	"strings"
 	"testing"
+
+	"github.com/BeatGlow/display"
+	"github.com/BeatGlow/display/internal/rotation"
 )
 
 func TestChooseConnector(t *testing.T) {
@@ -88,6 +93,65 @@ func TestChooseConnector(t *testing.T) {
 			}
 			if connector.name != tt.wantName || mode != tt.wantMode {
 				t.Fatalf("chooseConnector() = (%q, %dx%d); want (%q, %dx%d)", connector.name, mode.hDisplay, mode.vDisplay, tt.wantName, tt.wantMode.hDisplay, tt.wantMode.vDisplay)
+			}
+		})
+	}
+}
+
+func TestSetRotation(t *testing.T) {
+	native := image.Rect(0, 0, 4, 3)
+	d := &displayDevice{mode: modeInfo{hDisplay: 4, vDisplay: 3}, shadow: image.NewRGBA(native)}
+	for y := 0; y < native.Dy(); y++ {
+		for x := 0; x < native.Dx(); x++ {
+			d.shadow.SetRGBA(x, y, color.RGBA{R: uint8(x + 1), G: uint8(y + 1), A: 0xff})
+		}
+	}
+	physical := image.NewRGBA(native)
+	copy(physical.Pix, d.shadow.Pix)
+	for _, r := range []display.Rotation{display.Rotate90, display.Rotate180, display.Rotate270, display.Rotation(4)} {
+		if err := d.SetRotation(r); err != nil {
+			t.Fatal(err)
+		}
+		bounds := rotation.Bounds(native, r)
+		if got := d.Bounds(); got != bounds {
+			t.Fatalf("rotation %v bounds = %v; want %v", r, got, bounds)
+		}
+		for y := 0; y < bounds.Dy(); y++ {
+			for x := 0; x < bounds.Dx(); x++ {
+				px, py := rotation.Point(native, r, x, y)
+				if got, want := d.At(x, y), physical.At(px, py); got != want {
+					t.Fatalf("rotation %v pixel (%d,%d) = %v; want native (%d,%d) %v", r, x, y, got, px, py, want)
+				}
+			}
+		}
+	}
+	if err := d.SetRotation(display.Rotate90); err != nil {
+		t.Fatal(err)
+	}
+	d.Set(0, 0, color.RGBA{B: 0xff, A: 0xff})
+	if got, want := d.At(0, 0), (color.RGBA{B: 0xff, A: 0xff}); got != want {
+		t.Fatalf("rotated Set/At = %v; want %v", got, want)
+	}
+}
+
+func TestFreeBufferIndex(t *testing.T) {
+	tests := []struct {
+		name         string
+		front        int
+		pending      bool
+		pendingIndex int
+		want         int
+	}{
+		{name: "initial", front: 0, want: 1},
+		{name: "flip pending", front: 0, pending: true, pendingIndex: 1, want: 2},
+		{name: "previous flip complete", front: 1, want: 0},
+		{name: "pending third buffer", front: 1, pending: true, pendingIndex: 2, want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := &displayDevice{front: tt.front, pendingFlip: tt.pending, pendingIndex: tt.pendingIndex}
+			if got := d.freeBufferIndex(); got != tt.want {
+				t.Fatalf("freeBufferIndex() = %d; want %d", got, tt.want)
 			}
 		})
 	}

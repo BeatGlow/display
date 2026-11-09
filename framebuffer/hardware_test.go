@@ -180,11 +180,26 @@ func testDisplayFunctions(t *testing.T, screen display.Display) {
 	if err := screen.SetContrast(128); err != nil && !errors.Is(err, kms.ErrNotSupported) {
 		t.Errorf("SetContrast: %v", err)
 	}
-	if err := screen.SetRotation(display.Rotate90); err != nil && !errors.Is(err, kms.ErrNotSupported) {
-		t.Errorf("SetRotation(90): %v", err)
-	}
-	if err := screen.SetRotation(display.NoRotation); err != nil {
-		t.Errorf("SetRotation(0): %v", err)
+	for _, rotation := range []display.Rotation{display.Rotate90, display.Rotate180, display.Rotate270} {
+		if err := screen.SetRotation(rotation); err != nil {
+			if !errors.Is(err, kms.ErrNotSupported) {
+				t.Errorf("SetRotation(%s): %v", rotation, err)
+			}
+			continue
+		}
+		want := bounds.Size()
+		if rotation == display.Rotate90 || rotation == display.Rotate270 {
+			want = image.Pt(bounds.Dy(), bounds.Dx())
+		}
+		if got := screen.Bounds().Size(); got != want {
+			t.Errorf("SetRotation(%s) bounds = %v; want %v", rotation, got, want)
+		}
+		if err := screen.SetRotation(display.NoRotation); err != nil {
+			t.Errorf("SetRotation(0) after %s: %v", rotation, err)
+		}
+		if got := screen.Bounds().Size(); got != bounds.Size() {
+			t.Errorf("SetRotation(0) bounds = %v; want %v", got, bounds.Size())
+		}
 	}
 	if err := screen.Show(false); err != nil {
 		t.Errorf("Show(false): %v", err)
