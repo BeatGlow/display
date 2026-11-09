@@ -5,6 +5,8 @@ import (
 	"errors"
 	"image"
 
+	"github.com/BeatGlow/display"
+	"github.com/BeatGlow/display/internal/rotation"
 	"github.com/BeatGlow/display/pixel"
 )
 
@@ -49,6 +51,113 @@ func CopyToXRGB(dst []byte, stride int, src image.Image) error {
 		return copyRGB16(dst, stride, src.Pix, src.Stride, bounds, byteOrder(src.Order), true)
 	default:
 		return copyGeneric(dst, stride, src, bounds)
+	}
+}
+
+// CopyToXRGBRotated copies an RGBA image in logical orientation into a native
+// XRGB8888 scanout buffer. The destination stride is measured in bytes.
+func CopyToXRGBRotated(dst []byte, stride int, src *image.RGBA, nativeBounds image.Rectangle, r display.Rotation) error {
+	if src == nil {
+		return errors.New("buffer: source image is nil")
+	}
+	scratch := make([]byte, src.Bounds().Dx()*src.Bounds().Dy()*4)
+	row := make([]byte, nativeBounds.Dx()*4)
+	return CopyToXRGBRotatedInto(dst, stride, src, nativeBounds, r, scratch, row)
+}
+
+// CopyToXRGBRotatedInto copies a rotated RGBA image using caller-owned scratch
+// storage so repeated scanout conversions do not allocate.
+func CopyToXRGBRotatedInto(dst []byte, stride int, src *image.RGBA, nativeBounds image.Rectangle, r display.Rotation, scratch, row []byte) error {
+	if src == nil {
+		return errors.New("buffer: source image is nil")
+	}
+	if r == display.NoRotation {
+		return CopyToXRGB(dst, stride, src)
+	}
+	logicalBounds := rotation.Bounds(nativeBounds, r)
+	w, h := nativeBounds.Dx(), nativeBounds.Dy()
+	if w <= 0 || h <= 0 || stride < w*xrgbBytesPerPixel || src.Bounds().Size() != logicalBounds.Size() {
+		return errors.New("buffer: invalid rotated scanout dimensions")
+	}
+	sourceBounds := src.Bounds()
+	sourceEnd := src.PixOffset(sourceBounds.Max.X-1, sourceBounds.Max.Y-1) + 4
+	if stride > len(dst)/h || src.Stride < sourceBounds.Dx()*4 || sourceEnd > len(src.Pix) || len(scratch) < sourceBounds.Dx()*sourceBounds.Dy()*4 || len(row) < w*4 {
+		return errors.New("buffer: rotated source or destination buffer is too small")
+	}
+	if err := CopyToXRGB(scratch, sourceBounds.Dx()*4, src); err != nil {
+		return err
+	}
+	logicalStride := sourceBounds.Dx() * 4
+	if r%4 == display.Rotate90 {
+		rotateXRGB90(dst, stride, scratch, logicalStride, w, h)
+		return nil
+	}
+	if r%4 == display.Rotate270 {
+		rotateXRGB270(dst, stride, scratch, logicalStride, w, h)
+		return nil
+	}
+	for y := 0; y < h; y++ {
+		destination := dst[y*stride:]
+		switch r % 4 {
+		case display.Rotate90:
+			for x := 0; x < w; x++ {
+				offset := x*logicalStride + (h-1-y)*4
+				destinationOffset := x * 4
+				row[destinationOffset], row[destinationOffset+1] = scratch[offset], scratch[offset+1]
+				row[destinationOffset+2], row[destinationOffset+3] = scratch[offset+2], scratch[offset+3]
+			}
+		case display.Rotate180:
+			source := scratch[(h-1-y)*logicalStride:]
+			for x := 0; x < w; x++ {
+				offset := (w - 1 - x) * 4
+				destinationOffset := x * 4
+				row[destinationOffset], row[destinationOffset+1] = source[offset], source[offset+1]
+				row[destinationOffset+2], row[destinationOffset+3] = source[offset+2], source[offset+3]
+			}
+		case display.Rotate270:
+			for x := 0; x < w; x++ {
+				offset := (w-1-x)*logicalStride + y*4
+				destinationOffset := x * 4
+				row[destinationOffset], row[destinationOffset+1] = scratch[offset], scratch[offset+1]
+				row[destinationOffset+2], row[destinationOffset+3] = scratch[offset+2], scratch[offset+3]
+			}
+		default:
+			copy(row[:w*4], scratch[y*logicalStride:y*logicalStride+w*4])
+		}
+		copy(destination[:w*4], row[:w*4])
+	}
+	return nil
+}
+
+func rotateXRGB90Go(dst []byte, dstStride int, src []byte, srcStride, width, height int) {
+	const tile = 16
+	for y0 := 0; y0 < height; y0 += tile {
+		for x0 := 0; x0 < width; x0 += tile {
+			for y := y0; y < min(y0+tile, height); y++ {
+				destination := dst[y*dstStride:]
+				for x := x0; x < min(x0+tile, width); x++ {
+					sourceOffset, destinationOffset := x*srcStride+(height-1-y)*4, x*4
+					destination[destinationOffset], destination[destinationOffset+1] = src[sourceOffset], src[sourceOffset+1]
+					destination[destinationOffset+2], destination[destinationOffset+3] = src[sourceOffset+2], src[sourceOffset+3]
+				}
+			}
+		}
+	}
+}
+
+func rotateXRGB270Go(dst []byte, dstStride int, src []byte, srcStride, width, height int) {
+	const tile = 16
+	for y0 := 0; y0 < height; y0 += tile {
+		for x0 := 0; x0 < width; x0 += tile {
+			for y := y0; y < min(y0+tile, height); y++ {
+				destination := dst[y*dstStride:]
+				for x := x0; x < min(x0+tile, width); x++ {
+					sourceOffset, destinationOffset := (width-1-x)*srcStride+y*4, x*4
+					destination[destinationOffset], destination[destinationOffset+1] = src[sourceOffset], src[sourceOffset+1]
+					destination[destinationOffset+2], destination[destinationOffset+3] = src[sourceOffset+2], src[sourceOffset+3]
+				}
+			}
+		}
 	}
 }
 

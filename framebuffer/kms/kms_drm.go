@@ -19,6 +19,7 @@ import (
 	"github.com/BeatGlow/display"
 	"github.com/BeatGlow/display/internal/buffer"
 	"github.com/BeatGlow/display/internal/ioctl"
+	"github.com/BeatGlow/display/internal/rotation"
 )
 
 const (
@@ -95,20 +96,23 @@ func Open(config *Config) (display.Display, error) {
 var _ display.Display = (*displayDevice)(nil)
 
 type displayDevice struct {
-	mu          sync.Mutex
-	file        *os.File
-	master      bool
-	closed      bool
-	active      bool
-	modeSet     bool
-	shadow      *image.RGBA
-	mode        modeInfo
-	connectorID uint32
-	crtcID      uint32
-	front       int
-	back        int
-	buffers     [2]scanoutBuffer
-	saved       crtcState
+	mu              sync.Mutex
+	file            *os.File
+	master          bool
+	closed          bool
+	active          bool
+	modeSet         bool
+	shadow          *image.RGBA
+	rotation        display.Rotation
+	rotationScratch []byte
+	rotationRow     []byte
+	mode            modeInfo
+	connectorID     uint32
+	crtcID          uint32
+	front           int
+	back            int
+	buffers         [2]scanoutBuffer
+	saved           crtcState
 }
 
 type scanoutBuffer struct {
@@ -143,6 +147,8 @@ func (d *displayDevice) init(config *Config) error {
 	d.connectorID = connector.kernel.connectorID
 	d.mode = mode
 	d.shadow = image.NewRGBA(image.Rect(0, 0, int(mode.hDisplay), int(mode.vDisplay)))
+	d.rotationScratch = make([]byte, int(mode.hDisplay)*int(mode.vDisplay)*4)
+	d.rotationRow = make([]byte, int(mode.hDisplay)*4)
 	crtc, err := d.chooseCRTC(connector, resources)
 	if err != nil {
 		return err
@@ -428,7 +434,9 @@ func (d *displayDevice) destroyBuffer(b *scanoutBuffer) error {
 	return first
 }
 
-func (d *displayDevice) Bounds() image.Rectangle     { return d.shadow.Bounds() }
+func (d *displayDevice) Bounds() image.Rectangle {
+	return d.shadow.Bounds()
+}
 func (d *displayDevice) ColorModel() color.Model     { return color.RGBAModel }
 func (d *displayDevice) At(x, y int) color.Color     { return d.shadow.At(x, y) }
 func (d *displayDevice) Set(x, y int, c color.Color) { d.shadow.Set(x, y, c) }
@@ -477,7 +485,15 @@ func (d *displayDevice) Refresh() error {
 		return errors.New("kms: display is off")
 	}
 	back := &d.buffers[d.back]
-	if err := buffer.CopyToXRGB(back.pix, int(back.pitch), d.shadow); err != nil {
+	var err error
+	if d.rotation == display.NoRotation {
+		err = buffer.CopyToXRGB(back.pix, int(back.pitch), d.shadow)
+	} else {
+		err = buffer.CopyToXRGBRotatedInto(back.pix, int(back.pitch), d.shadow,
+			image.Rect(0, 0, int(d.mode.hDisplay), int(d.mode.vDisplay)), d.rotation,
+			d.rotationScratch, d.rotationRow)
+	}
+	if err != nil {
 		return err
 	}
 	flip := pageFlip{crtcID: d.crtcID, fbID: back.fbID, flags: drmModePageFlipEvent}
@@ -522,9 +538,27 @@ func (d *displayDevice) Show(show bool) error {
 
 func (d *displayDevice) SetContrast(uint8) error { return ErrNotSupported }
 func (d *displayDevice) SetRotation(r display.Rotation) error {
-	if r != display.NoRotation {
-		return ErrNotSupported
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.closed {
+		return os.ErrClosed
 	}
+	r %= 4
+	if r == d.rotation {
+		return nil
+	}
+	nativeBounds := image.Rect(0, 0, int(d.mode.hDisplay), int(d.mode.vDisplay))
+	newBounds := rotation.Bounds(nativeBounds, r)
+	next := image.NewRGBA(newBounds)
+	for y := 0; y < next.Bounds().Dy(); y++ {
+		for x := 0; x < next.Bounds().Dx(); x++ {
+			px, py := rotation.Point(nativeBounds, r, x, y)
+			oldX, oldY := rotation.InversePoint(nativeBounds, d.rotation, px, py)
+			next.Set(x, y, d.shadow.At(oldX, oldY))
+		}
+	}
+	d.shadow = next
+	d.rotation = r
 	return nil
 }
 

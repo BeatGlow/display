@@ -71,7 +71,8 @@ type Display interface {
 	// SetContrast sets the display contrast level.
 	SetContrast(level uint8) error
 
-	// SetRotation sets the display pixel orientation.
+	// SetRotation sets the display pixel orientation in clockwise 90-degree
+	// increments. Quarter turns swap the width and height returned by Bounds.
 	SetRotation(Rotation) error
 
 	// Refresh writes the display buffer to the device.

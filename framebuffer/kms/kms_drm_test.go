@@ -4,8 +4,13 @@ package kms
 
 import (
 	"errors"
+	"image"
+	"image/color"
 	"strings"
 	"testing"
+
+	"github.com/BeatGlow/display"
+	"github.com/BeatGlow/display/internal/rotation"
 )
 
 func TestChooseConnector(t *testing.T) {
@@ -90,6 +95,42 @@ func TestChooseConnector(t *testing.T) {
 				t.Fatalf("chooseConnector() = (%q, %dx%d); want (%q, %dx%d)", connector.name, mode.hDisplay, mode.vDisplay, tt.wantName, tt.wantMode.hDisplay, tt.wantMode.vDisplay)
 			}
 		})
+	}
+}
+
+func TestSetRotation(t *testing.T) {
+	native := image.Rect(0, 0, 4, 3)
+	d := &displayDevice{mode: modeInfo{hDisplay: 4, vDisplay: 3}, shadow: image.NewRGBA(native)}
+	for y := 0; y < native.Dy(); y++ {
+		for x := 0; x < native.Dx(); x++ {
+			d.shadow.SetRGBA(x, y, color.RGBA{R: uint8(x + 1), G: uint8(y + 1), A: 0xff})
+		}
+	}
+	physical := image.NewRGBA(native)
+	copy(physical.Pix, d.shadow.Pix)
+	for _, r := range []display.Rotation{display.Rotate90, display.Rotate180, display.Rotate270, display.Rotation(4)} {
+		if err := d.SetRotation(r); err != nil {
+			t.Fatal(err)
+		}
+		bounds := rotation.Bounds(native, r)
+		if got := d.Bounds(); got != bounds {
+			t.Fatalf("rotation %v bounds = %v; want %v", r, got, bounds)
+		}
+		for y := 0; y < bounds.Dy(); y++ {
+			for x := 0; x < bounds.Dx(); x++ {
+				px, py := rotation.Point(native, r, x, y)
+				if got, want := d.At(x, y), physical.At(px, py); got != want {
+					t.Fatalf("rotation %v pixel (%d,%d) = %v; want native (%d,%d) %v", r, x, y, got, px, py, want)
+				}
+			}
+		}
+	}
+	if err := d.SetRotation(display.Rotate90); err != nil {
+		t.Fatal(err)
+	}
+	d.Set(0, 0, color.RGBA{B: 0xff, A: 0xff})
+	if got, want := d.At(0, 0), (color.RGBA{B: 0xff, A: 0xff}); got != want {
+		t.Fatalf("rotated Set/At = %v; want %v", got, want)
 	}
 }
 
