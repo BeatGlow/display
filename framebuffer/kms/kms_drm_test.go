@@ -134,6 +134,29 @@ func TestSetRotation(t *testing.T) {
 	}
 }
 
+func TestFreeBufferIndex(t *testing.T) {
+	tests := []struct {
+		name         string
+		front        int
+		pending      bool
+		pendingIndex int
+		want         int
+	}{
+		{name: "initial", front: 0, want: 1},
+		{name: "flip pending", front: 0, pending: true, pendingIndex: 1, want: 2},
+		{name: "previous flip complete", front: 1, want: 0},
+		{name: "pending third buffer", front: 1, pending: true, pendingIndex: 2, want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := &displayDevice{front: tt.front, pendingFlip: tt.pending, pendingIndex: tt.pendingIndex}
+			if got := d.freeBufferIndex(); got != tt.want {
+				t.Fatalf("freeBufferIndex() = %d; want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestConnectorName(t *testing.T) {
 	tests := []struct {
 		typ, id uint32

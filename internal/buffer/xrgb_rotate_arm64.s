@@ -1,7 +1,7 @@
 #include "textflag.h"
 
 // rotateXRGB90ARM64 transposes 4x4 XRGB8888 tiles into clockwise scanout order.
-TEXT ·rotateXRGB90ARM64(SB), NOSPLIT, $0-80
+TEXT ·rotateXRGB90ARM64(SB), NOSPLIT, $0-96
 	MOVD dst_base+0(FP), R0
 	MOVD dstStride+24(FP), R1
 	MOVD src_base+32(FP), R2
@@ -10,10 +10,11 @@ TEXT ·rotateXRGB90ARM64(SB), NOSPLIT, $0-80
 	MOVD height+72(FP), R5
 	AND $-4, R4, R4
 	AND $-4, R5, R5
-	MOVD $0, R6
+	MOVD startY+80(FP), R6
+	MOVD endY+88(FP), R15
 
 yloop90:
-	CMP R5, R6
+	CMP R15, R6
 	BGE done90
 	MOVD $0, R7
 
@@ -66,7 +67,7 @@ done90:
 	RET
 
 // rotateXRGB270ARM64 transposes 4x4 XRGB8888 tiles into counterclockwise scanout order.
-TEXT ·rotateXRGB270ARM64(SB), NOSPLIT, $0-80
+TEXT ·rotateXRGB270ARM64(SB), NOSPLIT, $0-96
 	MOVD dst_base+0(FP), R0
 	MOVD dstStride+24(FP), R1
 	MOVD src_base+32(FP), R2
@@ -75,10 +76,11 @@ TEXT ·rotateXRGB270ARM64(SB), NOSPLIT, $0-80
 	MOVD height+72(FP), R5
 	AND $-4, R4, R4
 	AND $-4, R5, R5
-	MOVD $0, R6
+	MOVD startY+80(FP), R6
+	MOVD endY+88(FP), R15
 
 yloop270:
-	CMP R5, R6
+	CMP R15, R6
 	BGE done270
 	MOVD $0, R7
 
