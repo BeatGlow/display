@@ -16,19 +16,19 @@ type Drawer = draw.Drawer
 // Image is an alias for [image/draw.Image].
 type Image = draw.Image
 
-// Op is an alias for image/draw.Op
+// Op is an alias for [image/draw.Op].
 type Op = draw.Op
 
 const (
-	// Over specifies ``(src in mask) over dst''.
+	// Over composites src over dst, limited by the optional mask.
 	Over Op = iota
 
-	// Src specifies ``src in mask''.
+	// Src replaces dst with src, limited by the optional mask.
 	Src
 )
 
-// Draw calls draw.Draw
-// Draw calls [DrawMask] with a nil mask.
+// Draw copies the specified source rectangle to dst using the given operation.
+// It is equivalent to [DrawMask] with a nil mask.
 func Draw(dst Image, r image.Rectangle, src image.Image, sp image.Point, op Op) {
 	DrawMask(dst, r, src, sp, nil, image.Point{}, op)
 }

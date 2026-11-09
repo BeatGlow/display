@@ -1,9 +1,7 @@
-// Package kms provides a DRM/KMS display backed by dumb scanout buffers on Linux
-// and FreeBSD 15.1 amd64 with a compatible drm-kmod driver.
-//
-// It requires a connected DRM/KMS output and permission to become DRM master.
-// Refresh copies pixels into a back buffer and waits for a vblank page flip, so
-// drawing never modifies the buffer currently being scanned out.
+/*
+Package kms opens DRM/KMS displays with dumb scanout buffers on Linux and
+FreeBSD amd64, selecting a connected output and display mode.
+*/
 package kms
 
 import "errors"
@@ -24,6 +22,6 @@ type Config struct {
 	Device string
 	// Connector selects an output by name, such as HDMI-A-1.
 	Connector string
-	// Width and Height select an exact mode when both are positive.
+	// Width and Height select an exact display mode when both are positive.
 	Width, Height int
 }

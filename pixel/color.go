@@ -2,24 +2,34 @@ package pixel
 
 import "image/color"
 
-// Models for the standard color types.
+// Models convert colors to the corresponding packed pixel color type.
 var (
-	MonoModel   color.Model = color.ModelFunc(monoModel)
-	Gray2Model  color.Model = color.ModelFunc(gray2Model)
-	Gray4Model  color.Model = color.ModelFunc(gray4Model)
+	// MonoModel converts colors to [Mono].
+	MonoModel color.Model = color.ModelFunc(monoModel)
+	// Gray2Model converts colors to [Gray2].
+	Gray2Model color.Model = color.ModelFunc(gray2Model)
+	// Gray4Model converts colors to [Gray4].
+	Gray4Model color.Model = color.ModelFunc(gray4Model)
+	// CBGR15Model converts colors to [CBGR15].
 	CBGR15Model color.Model = color.ModelFunc(cbgr15Model)
+	// CRGB15Model converts colors to [CRGB15].
 	CRGB15Model color.Model = color.ModelFunc(crgb15Model)
+	// CBGR16Model converts colors to [CBGR16].
 	CBGR16Model color.Model = color.ModelFunc(cbgr16Model)
+	// CRGB16Model converts colors to [CRGB16].
 	CRGB16Model color.Model = color.ModelFunc(crgb16Model)
 )
 
 var (
+	// Off is the monochrome color with its pixel unset.
 	Off = Mono{false}
-	On  = Mono{true}
+	// On is the monochrome color with its pixel set.
+	On = Mono{true}
 )
 
 // Mono represents a 1-bit monochrome color.
 type Mono struct {
+	// On reports whether the monochrome pixel is set.
 	On bool
 }
 
@@ -51,6 +61,7 @@ func monoModel(c color.Color) color.Color {
 
 // Gray2 represents a 2-bit grayscale color.
 type Gray2 struct {
+	// Y is the two-bit grayscale value, from 0 (black) to 3 (white).
 	Y uint8
 }
 
@@ -74,6 +85,7 @@ func gray2Model(c color.Color) color.Color {
 
 // Gray4 represents a 4-bit grayscale color.
 type Gray4 struct {
+	// Y is the four-bit grayscale value, from 0 (black) to 15 (white).
 	Y uint8
 }
 
@@ -96,9 +108,11 @@ func gray4Model(c color.Color) color.Color {
 
 // CBGR15 represents a 15-bit 5-5-5 BGR color.
 type CBGR15 struct {
+	// V stores the packed 15-bit BGR value.
 	V uint16
 }
 
+// RGBA returns the color in alpha-premultiplied 16-bit values.
 func (c CBGR15) RGBA() (r, g, b, a uint32) {
 	// Build a 5-bit value at the top of the low byte of each component.
 	blu := (c.V & 0x7C00) >> 7
@@ -130,9 +144,11 @@ func cbgr15Value(c color.Color) CBGR15 {
 
 // CRGB15 represents a 15-bit 5-5-5 RGB color.
 type CRGB15 struct {
+	// V stores the packed 15-bit RGB value.
 	V uint16
 }
 
+// RGBA returns the color in alpha-premultiplied 16-bit values.
 func (c CRGB15) RGBA() (r, g, b, a uint32) {
 	// Build a 5-bit value at the top of the low byte of each component.
 	red := (c.V & 0x7C00) >> 7
@@ -164,9 +180,11 @@ func crgb15Value(c color.Color) CRGB15 {
 
 // CBGR16 represents a 16-bit 5-6-5 BGR color.
 type CBGR16 struct {
+	// V stores the packed 16-bit BGR value.
 	V uint16
 }
 
+// RGBA returns the color in alpha-premultiplied 16-bit values.
 func (c CBGR16) RGBA() (r, g, b, a uint32) {
 	// Build a 5- or 6-bit value at the top of the low byte of each component.
 	blu := (c.V & 0xF800) >> 8
@@ -210,9 +228,11 @@ func cbgr16Value(c color.Color) CBGR16 {
 // CRGB16 represents a 16-bit 5-6-5 RGB color.
 type CRGB16 struct {
 	// CRed, 5, CGreen, 6, CBlue, 5
+	// V stores the packed 16-bit RGB value.
 	V uint16
 }
 
+// RGBA returns the color in alpha-premultiplied 16-bit values.
 func (c CRGB16) RGBA() (r, g, b, a uint32) {
 	// Build a 5- or 6-bit value at the top of the low byte of each component.
 	red := (c.V & 0xF800) >> 8

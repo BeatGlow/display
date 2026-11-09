@@ -7,6 +7,8 @@ import (
 	"image/draw"
 )
 
+// Image combines the standard image interfaces with operations for clearing
+// and filling the image.
 type Image interface {
 	draw.Image
 
@@ -21,30 +23,47 @@ type Image interface {
 type PixelFormat uint8
 
 const (
+	// FormatMonoLSB identifies the 1-bit horizontal, least-significant-bit-first format.
 	FormatMonoLSB PixelFormat = iota + 1
+	// FormatMonoVerticalLSB identifies the 1-bit vertical, least-significant-bit-first format.
 	FormatMonoVerticalLSB
+	// FormatGray2 identifies the packed 2-bit grayscale format.
 	FormatGray2
+	// FormatGray4 identifies the packed 4-bit grayscale format.
 	FormatGray4
+	// FormatCBGR15 identifies the packed 15-bit BGR format.
 	FormatCBGR15
+	// FormatCBGR16 identifies the packed 16-bit BGR format.
 	FormatCBGR16
+	// FormatCRGB15 identifies the packed 15-bit RGB format.
 	FormatCRGB15
+	// FormatCRGB16 identifies the packed 16-bit RGB format.
 	FormatCRGB16
 )
 
 // PixelView exposes storage for optional, format-aware drawing fast paths.
 // Pix is borrowed and must not be retained by callers.
 type PixelView struct {
-	Pix    []byte
+	// Pix borrows the image's pixel storage and must not be retained.
+	Pix []byte
+	// Stride is the byte distance between vertically adjacent rows.
 	Stride int
+	// Bounds is the image rectangle represented by Pix.
 	Bounds image.Rectangle
+	// Format identifies the pixel encoding in Pix.
 	Format PixelFormat
-	Order  binary.ByteOrder
+	// Order is the byte order for packed 16-bit pixels; it is nil for other formats.
+	Order binary.ByteOrder
 }
 
-// FastImage is an optional capability implemented by package pixel images.
-type FastImage interface{ PixelView() PixelView }
+// FastImage is an optional capability for images that expose their pixel
+// storage through [PixelView].
+type FastImage interface {
+	// PixelView returns a view of the image's pixel storage and encoding.
+	PixelView() PixelView
+}
 
-// Buffer holds the pixel values and is a container that is used by most image formats in this package.
+// Buffer stores packed pixel data shared by the image types in this package.
 type Buffer struct {
 	// Rect is the image bounding box.
 	Rect image.Rectangle
@@ -64,27 +83,42 @@ func (p *Buffer) Clear() {
 	clear(p.Pix)
 }
 
+// PixelView returns the packed pixel storage and format of p.
 func (p *MonoImage) PixelView() PixelView {
 	return PixelView{Pix: p.Pix, Stride: p.Stride, Bounds: p.Rect, Format: FormatMonoLSB}
 }
+
+// PixelView returns the packed pixel storage and format of p.
 func (p *MonoVerticalLSBImage) PixelView() PixelView {
 	return PixelView{Pix: p.Pix, Stride: p.Stride, Bounds: p.Rect, Format: FormatMonoVerticalLSB}
 }
+
+// PixelView returns the packed pixel storage and format of p.
 func (p *Gray2Image) PixelView() PixelView {
 	return PixelView{Pix: p.Pix, Stride: p.Stride, Bounds: p.Rect, Format: FormatGray2}
 }
+
+// PixelView returns the packed pixel storage and format of p.
 func (p *Gray4Image) PixelView() PixelView {
 	return PixelView{Pix: p.Pix, Stride: p.Stride, Bounds: p.Rect, Format: FormatGray4}
 }
+
+// PixelView returns the packed pixel storage and format of p.
 func (p *CBGR15Image) PixelView() PixelView {
 	return PixelView{Pix: p.Pix, Stride: p.Stride, Bounds: p.Rect, Format: FormatCBGR15, Order: p.Order}
 }
+
+// PixelView returns the packed pixel storage and format of p.
 func (p *CBGR16Image) PixelView() PixelView {
 	return PixelView{Pix: p.Pix, Stride: p.Stride, Bounds: p.Rect, Format: FormatCBGR16, Order: p.Order}
 }
+
+// PixelView returns the packed pixel storage and format of p.
 func (p *CRGB15Image) PixelView() PixelView {
 	return PixelView{Pix: p.Pix, Stride: p.Stride, Bounds: p.Rect, Format: FormatCRGB15, Order: p.Order}
 }
+
+// PixelView returns the packed pixel storage and format of p.
 func (p *CRGB16Image) PixelView() PixelView {
 	return PixelView{Pix: p.Pix, Stride: p.Stride, Bounds: p.Rect, Format: FormatCRGB16, Order: p.Order}
 }
@@ -102,6 +136,7 @@ type MonoImage struct {
 	Buffer
 }
 
+// NewMonoImage allocates a 1-bit monochrome image with the given dimensions.
 func NewMonoImage(w, h int) *MonoImage {
 	stride := ((w + 7) & ^7) / 8 // round up to whole bytes
 	return &MonoImage{
@@ -156,11 +191,12 @@ func (p *MonoImage) Fill(c color.Color) {
 
 // MonoVerticalLSBImage is a 1-bit per pixel monochrome image.
 //
-// This is mostly used by SSD1xxx OLED displays.
+// This layout is used by monochrome OLED display drivers.
 type MonoVerticalLSBImage struct {
 	Buffer
 }
 
+// NewMonoVerticalLSBImage allocates a 1-bit image with vertical, least-significant-bit-first packing.
 func NewMonoVerticalLSBImage(w, h int) *MonoVerticalLSBImage {
 	bands := ((h + 7) & ^7) / 8 // round up to whole bytes
 	return &MonoVerticalLSBImage{
@@ -215,6 +251,7 @@ type Gray2Image struct {
 	Buffer
 }
 
+// NewGray2Image allocates a 2-bit grayscale image with the given dimensions.
 func NewGray2Image(w, h int) *Gray2Image {
 	return &Gray2Image{
 		Buffer: makeBuffer(w, h, (w+3)>>2, h*(w+3)>>2),
@@ -258,6 +295,7 @@ type Gray4Image struct {
 	Buffer
 }
 
+// NewGray4Image allocates a 4-bit grayscale image with the given dimensions.
 func NewGray4Image(w, h int) *Gray4Image {
 	return &Gray4Image{
 		Buffer: makeBuffer(w, h, (w+1)/2, h*((w+1)/2)),
@@ -304,9 +342,11 @@ func (p *Gray4Image) Fill(c color.Color) {
 // CBGR15Image is a 15-bits per pixel 5-5-5-bit BGR image.
 type CBGR15Image struct {
 	Buffer
+	// Order controls the byte order used to store each packed pixel.
 	Order binary.ByteOrder
 }
 
+// NewCBGR15Image allocates a 15-bit BGR image with the given dimensions.
 func NewCBGR15Image(w, h int) *CBGR15Image {
 	return &CBGR15Image{
 		Buffer: makeBuffer(w, h, w*2, w*2*h),
@@ -346,9 +386,11 @@ func (p *CBGR15Image) Fill(c color.Color) {
 // CBGR16Image is a 16-bits per pixel 5-6-5-bit BGR image.
 type CBGR16Image struct {
 	Buffer
+	// Order controls the byte order used to store each packed pixel.
 	Order binary.ByteOrder
 }
 
+// NewCBGR16Image allocates a 16-bit BGR image with the given dimensions.
 func NewCBGR16Image(w, h int) *CBGR16Image {
 	return &CBGR16Image{
 		Buffer: makeBuffer(w, h, w*2, w*2*h),
@@ -388,9 +430,11 @@ func (p *CBGR16Image) Fill(c color.Color) {
 // CRGB15Image is a 15-bits per pixel 5-5-5-bit RGB image.
 type CRGB15Image struct {
 	Buffer
+	// Order controls the byte order used to store each packed pixel.
 	Order binary.ByteOrder
 }
 
+// NewCRGB15Image allocates a 15-bit RGB image with the given dimensions.
 func NewCRGB15Image(w, h int) *CRGB15Image {
 	return &CRGB15Image{
 		Buffer: makeBuffer(w, h, w*2, w*2*h),
@@ -430,9 +474,11 @@ func (p *CRGB15Image) Fill(c color.Color) {
 // CRGB16Image is a 16-bits per pixel 5-6-5-bit RGB image.
 type CRGB16Image struct {
 	Buffer
+	// Order controls the byte order used to store each packed pixel.
 	Order binary.ByteOrder
 }
 
+// NewCRGB16Image allocates a 16-bit RGB image with the given dimensions.
 func NewCRGB16Image(w, h int) *CRGB16Image {
 	return &CRGB16Image{
 		Buffer: makeBuffer(w, h, w*2, w*2*h),

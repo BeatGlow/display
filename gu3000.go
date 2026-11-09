@@ -21,6 +21,7 @@ type gu3000 struct {
 	dad uint8 // data address
 }
 
+// GU3000 initializes and returns a display using a GU3000 controller.
 func GU3000(conn Conn, config *Config) (Display, error) {
 	d := &gu3000{
 		monoDisplay: monoDisplay{

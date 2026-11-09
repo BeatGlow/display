@@ -1,2 +1,4 @@
-// Package draw provides provides image composition functions.
+/*
+Package draw provides image composition and line, box, and rectangle drawing.
+*/
 package draw

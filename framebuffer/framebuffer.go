@@ -12,7 +12,9 @@ import (
 // Config configures the framebuffer output backends. A nil KMS config uses the
 // KMS defaults. An empty FBDev path uses /dev/fb0.
 type Config struct {
-	KMS   *kms.Config
+	// KMS configures the DRM/KMS backend using [kms.Config].
+	KMS *kms.Config
+	// FBDev is the framebuffer device path, such as /dev/fb0.
 	FBDev string
 }
 

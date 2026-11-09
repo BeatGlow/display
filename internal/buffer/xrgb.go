@@ -1,4 +1,3 @@
-// Package buffer converts display image formats to scanout buffers.
 package buffer
 
 import (

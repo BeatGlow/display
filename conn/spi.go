@@ -13,12 +13,17 @@ const (
 	spiCPOL = 0x02
 )
 
+// SPIMode identifies the clock polarity and phase used by an SPI connection.
 type SPIMode uint8
 
 const (
-	SPIMode0 SPIMode = (0 | 0)             //nolint:staticcheck
-	SPIMode1 SPIMode = (0 | spiCPHA)       //nolint:staticcheck
-	SPIMode2 SPIMode = (spiCPOL | 0)       //nolint:staticcheck
+	// SPIMode0 uses low clock polarity and samples on the leading edge.
+	SPIMode0 SPIMode = (0 | 0) //nolint:staticcheck
+	// SPIMode1 uses low clock polarity and samples on the trailing edge.
+	SPIMode1 SPIMode = (0 | spiCPHA) //nolint:staticcheck
+	// SPIMode2 uses high clock polarity and samples on the leading edge.
+	SPIMode2 SPIMode = (spiCPOL | 0) //nolint:staticcheck
+	// SPIMode3 uses high clock polarity and samples on the trailing edge.
 	SPIMode3 SPIMode = (spiCPOL | spiCPHA) //nolint:staticcheck
 )
 
@@ -66,18 +71,22 @@ func OpenSPI(bus, device int) (*SPI, error) {
 	return c, nil
 }
 
+// Close releases the SPI device connection.
 func (c *SPI) Close() error {
 	return c.f.Close()
 }
 
+// String returns a human-readable description.
 func (c *SPI) String() string {
 	return fmt.Sprintf("SPI dev=%s mode=%d bits per word=%d max speed=%dHz", c.f.Name(), c.mode, c.bitsPerWord, c.maxSpeedHz)
 }
 
+// Mode returns the configured SPI mode.
 func (c *SPI) Mode() SPIMode {
 	return c.mode
 }
 
+// SetMode changes the SPI mode.
 func (c *SPI) SetMode(mode SPIMode) error {
 	mode &= 0x0f
 
@@ -98,10 +107,12 @@ func (c *SPI) SetMode(mode SPIMode) error {
 	return nil
 }
 
+// BitsPerWord returns the configured number of bits per word.
 func (c *SPI) BitsPerWord() uint8 {
 	return c.bitsPerWord
 }
 
+// SetBitsPerWord changes the number of bits per SPI word.
 func (c *SPI) SetBitsPerWord(bits uint8) error {
 	if bits < 8 || bits > 32 {
 		return fmt.Errorf("conn: SPI bits per word need to be 8 or more and 32 or less, got %d", bits)
@@ -117,10 +128,12 @@ func (c *SPI) SetBitsPerWord(bits uint8) error {
 	return nil
 }
 
+// MaxSpeed returns the configured SPI clock speed in hertz.
 func (c *SPI) MaxSpeed() int {
 	return int(c.maxSpeedHz)
 }
 
+// SetMaxSpeed changes the SPI clock speed in hertz.
 func (c *SPI) SetMaxSpeed(v int) error {
 	if v < 0 {
 		return nil
@@ -137,10 +150,12 @@ func (c *SPI) SetMaxSpeed(v int) error {
 	return nil
 }
 
+// Read reads bytes from the connection.
 func (c *SPI) Read(b []byte) (n int, err error) {
 	return c.f.Read(b)
 }
 
+// Write writes bytes to the connection.
 func (c *SPI) Write(b []byte) (n int, err error) {
 	return c.f.Write(b)
 }
