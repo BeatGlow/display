@@ -73,8 +73,18 @@ func (d *ssd1xxxDisplay) SetContrast(level uint8) error {
 }
 
 func (d *ssd1xxxDisplay) SetRotation(rotation Rotation) error {
-	d.rotation = rotation
-	return nil
+	return d.monoDisplay.SetRotation(rotation)
+}
+
+func setSegmentComFlip(command func(byte, ...byte) error, flip bool) error {
+	var segment, com byte = ssd1xxxSetSegmentRemap, ssd1xxxSetComScanDec
+	if flip {
+		segment, com = ssd1xxxSetRemap, ssd1xxxSetComScanInc
+	}
+	if err := command(segment); err != nil {
+		return err
+	}
+	return command(com)
 }
 
 // data transparently re-enabled a halted display

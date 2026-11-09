@@ -57,6 +57,9 @@ func SH1122(c Conn, config *Config) (Display, error) {
 	if err := d.init(config); err != nil {
 		return nil, err
 	}
+	if err := d.SetRotation(config.Rotation); err != nil {
+		return nil, err
+	}
 
 	return d, nil
 }
@@ -151,8 +154,16 @@ func (d *sh1122) SetContrast(level uint8) error {
 }
 
 func (d *sh1122) SetRotation(rotation Rotation) error {
-	d.rotation = rotation
-	return nil
+	return d.baseDisplay.setHardwareRotation(rotation, func(flip bool) error {
+		var segment, com byte = ssd1xxxSetRemap, ssd1xxxSetComScanInc
+		if flip {
+			segment, com = ssd1xxxSetSegmentRemap, ssd1xxxSetComScanDec
+		}
+		if err := d.command(segment); err != nil {
+			return err
+		}
+		return d.command(com)
+	})
 }
 
 func (d *sh1122) Refresh() (err error) {

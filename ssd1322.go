@@ -114,6 +114,16 @@ func (d *ssd1322) Close() error {
 	return d.c.Close()
 }
 
+func (d *ssd1322) SetRotation(rotation Rotation) error {
+	return d.baseDisplay.setHardwareRotation(rotation, func(flip bool) error {
+		remap := byte(0x14) // Existing init: nibble remap + reverse COM scan.
+		if flip {
+			remap = 0x06 // Toggle column and COM remap; keep nibble remap.
+		}
+		return d.command(ssd1322SetRemap, remap, 0x11)
+	})
+}
+
 func (d *ssd1322) String() string {
 	bounds := d.Bounds()
 	return fmt.Sprintf("SSD1322 OLED %dx%d", bounds.Dx(), bounds.Dy())

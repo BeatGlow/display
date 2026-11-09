@@ -13,7 +13,8 @@ func (d *monoDisplay) init(config *Config) error {
 	d.Image = pixel.NewMonoVerticalLSBImage(config.Width, config.Height)
 	d.width = config.Width
 	d.height = config.Height
-	d.rotation = config.Rotation
+	d.rotation = config.Rotation % 4
+	d.bufferRotation = d.rotation
 	return nil
 }
 
@@ -41,6 +42,5 @@ func (d *monoDisplay) SetContrast(level uint8) error {
 }
 
 func (d *monoDisplay) SetRotation(rotation Rotation) error {
-	d.rotation = rotation
-	return nil
+	return d.baseDisplay.SetRotation(rotation)
 }

@@ -2,6 +2,7 @@ package display
 
 import (
 	"errors"
+	"image"
 	"image/color"
 	"image/draw"
 
@@ -102,12 +103,76 @@ type Config struct {
 
 type baseDisplay struct {
 	draw.Image
-	c         Conn
-	width     int
-	height    int
-	colOffset int
-	rowOffset int
-	rotation  Rotation
+	c              Conn
+	width          int
+	height         int
+	colOffset      int
+	rowOffset      int
+	rotation       Rotation
+	bufferRotation Rotation
+}
+
+func (d *baseDisplay) Bounds() image.Rectangle {
+	return rotationBounds(d.Image.Bounds(), d.bufferRotation)
+}
+
+func (d *baseDisplay) At(x, y int) color.Color {
+	bounds := d.Bounds()
+	if !image.Pt(x, y).In(bounds) {
+		return color.Transparent
+	}
+	x, y = rotationPoint(d.Image.Bounds(), d.bufferRotation, x, y)
+	return d.Image.At(x, y)
+}
+
+func (d *baseDisplay) Set(x, y int, c color.Color) {
+	if !image.Pt(x, y).In(d.Bounds()) {
+		return
+	}
+	x, y = rotationPoint(d.Image.Bounds(), d.bufferRotation, x, y)
+	d.Image.Set(x, y, c)
+}
+
+func (d *baseDisplay) SetRotation(rotation Rotation) error {
+	d.rotation = rotation % 4
+	d.bufferRotation = d.rotation
+	return nil
+}
+
+// setHardwareRotation records the requested orientation while using controller
+// address remapping for 180-degree turns. Quarter turns remain software mapped.
+func (d *baseDisplay) setHardwareRotation(rotation Rotation, setFlip func(bool) error) error {
+	rotation %= 4
+	flip := rotation == Rotate180
+	if err := setFlip(flip); err != nil {
+		return err
+	}
+	d.rotation = rotation
+	d.bufferRotation = rotation
+	if flip {
+		d.bufferRotation = NoRotation
+	}
+	return nil
+}
+
+func rotationBounds(bounds image.Rectangle, rotation Rotation) image.Rectangle {
+	if rotation%4 == Rotate90 || rotation%4 == Rotate270 {
+		return image.Rect(0, 0, bounds.Dy(), bounds.Dx())
+	}
+	return bounds
+}
+
+func rotationPoint(bounds image.Rectangle, rotation Rotation, x, y int) (int, int) {
+	switch rotation % 4 {
+	case Rotate90:
+		return bounds.Min.X + y, bounds.Max.Y - 1 - x
+	case Rotate180:
+		return bounds.Max.X - 1 - x, bounds.Max.Y - 1 - y
+	case Rotate270:
+		return bounds.Max.X - 1 - y, bounds.Min.Y + x
+	default:
+		return x, y
+	}
 }
 
 func (d *baseDisplay) data(data ...byte) error {

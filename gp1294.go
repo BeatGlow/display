@@ -36,11 +36,12 @@ type gp1294 struct {
 	spiConn       *conn.SPI
 	width, height int
 	pix           []byte
+	rotation      Rotation
 }
 
 // GP1294 initializes and returns a display using a GP1294 controller.
 func GP1294(c Conn, config *Config) (Display, error) {
-	d := &gp1294{conn: c}
+	d := &gp1294{conn: c, rotation: config.Rotation % 4}
 
 	if c, ok := c.Interface().(*conn.SPI); ok {
 		d.spiConn = c
@@ -172,7 +173,7 @@ func (d *gp1294) clear() error {
 }
 
 func (d *gp1294) Bounds() image.Rectangle {
-	return image.Rect(0, 0, d.width, d.height)
+	return rotationBounds(image.Rect(0, 0, d.width, d.height), d.rotation)
 }
 
 func (d *gp1294) ColorModel() color.Model {
@@ -183,6 +184,7 @@ func (d *gp1294) At(x, y int) color.Color {
 	if !image.Pt(x, y).In(d.Bounds()) {
 		return color.Transparent
 	}
+	x, y = rotationPoint(image.Rect(0, 0, d.width, d.height), d.rotation, x, y)
 
 	offset := x*(d.height/8) + y/8
 	if d.pix[offset]&(1<<(y%8)) != 0 {
@@ -195,6 +197,7 @@ func (d *gp1294) Set(x, y int, c color.Color) {
 	if !image.Pt(x, y).In(d.Bounds()) {
 		return
 	}
+	x, y = rotationPoint(image.Rect(0, 0, d.width, d.height), d.rotation, x, y)
 
 	offset := x*(d.height/8) + y/8
 	if pixel.MonoModel.Convert(c).(pixel.Mono).On {
@@ -209,7 +212,8 @@ func (d *gp1294) SetContrast(level uint8) error {
 	return d.Command(gp1294Brightness, byte(value), byte(value>>8))
 }
 
-func (gp1294) SetRotation(_ Rotation) error {
+func (d *gp1294) SetRotation(rotation Rotation) error {
+	d.rotation = rotation % 4
 	return nil
 }
 
