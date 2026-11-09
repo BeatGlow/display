@@ -70,14 +70,6 @@ func main() {
 
 Each driver also exposes controls such as rotation, contrast, and display power where supported.
 
-`Display.SetRotation` accepts `NoRotation`, `Rotate90`, `Rotate180`, and
-`Rotate270`. Angles are clockwise; 90° and 270° swap the logical width and
-height returned by `Bounds`. Draw through the usual `image.Image` methods after
-setting the orientation. Linux fbdev and KMS currently rotate in software when
-the framebuffer is refreshed. Run `go run ./cmd/display-test-framebuffer
--rotation 90` to exercise the full-resolution framebuffer demo at 90° (use
-`-rotation 180` or `-rotation 270` for the other quarter-turns).
-
 ## Packages
 
 | Package | Purpose |
