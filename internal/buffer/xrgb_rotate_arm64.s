@@ -131,3 +131,50 @@ nexty270:
 
 done270:
 	RET
+
+// rotateXRGB180ARM64 reverses XRGB pixels within each row and reverses row order.
+TEXT ·rotateXRGB180ARM64(SB), NOSPLIT, $0-96
+	MOVD dst_base+0(FP), R0
+	MOVD dstStride+24(FP), R1
+	MOVD src_base+32(FP), R2
+	MOVD srcStride+56(FP), R3
+	MOVD width+64(FP), R4
+	MOVD height+72(FP), R5
+	MOVD startY+80(FP), R6
+	MOVD endY+88(FP), R15
+
+yloop180:
+	CMP R15, R6
+	BGE done180
+	SUB $1, R5, R8
+	SUB R6, R8, R8
+	MUL R3, R8, R8
+	ADD R2, R8, R8
+	MUL R1, R6, R9
+	ADD R0, R9, R9
+	MOVD $0, R7
+
+xloop180:
+	CMP R4, R7
+	BGE nexty180
+	SUB $4, R4, R10
+	SUB R7, R10, R10
+	LSL $2, R10, R10
+	ADD R8, R10, R10
+	VLD1 (R10), [V0.B16]
+	VREV64 V0.B16, V1.B16
+	VEXT $8, V1.B16, V1.B16, V2.B16
+	VREV32 V2.B16, V2.B16
+	MOVD R7, R11
+	LSL $2, R11, R11
+	ADD R9, R11, R11
+	VST1 [V2.B16], (R11)
+	ADD $4, R7, R7
+	B xloop180
+
+nexty180:
+	ADD $1, R6, R6
+	B yloop180
+
+done180:
+	RET

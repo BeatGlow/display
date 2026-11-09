@@ -96,6 +96,10 @@ func CopyToXRGBRotatedInto(dst []byte, stride int, src *image.RGBA, nativeBounds
 		rotateXRGB270(dst, stride, scratch, logicalStride, w, h)
 		return nil
 	}
+	if r%4 == display.Rotate180 {
+		rotateXRGB180(dst, stride, scratch, logicalStride, w, h)
+		return nil
+	}
 	for y := 0; y < h; y++ {
 		destination := dst[y*stride:]
 		switch r % 4 {
@@ -157,6 +161,17 @@ func rotateXRGB270Go(dst []byte, dstStride int, src []byte, srcStride, width, he
 					destination[destinationOffset+2], destination[destinationOffset+3] = src[sourceOffset+2], src[sourceOffset+3]
 				}
 			}
+		}
+	}
+}
+
+func rotateXRGB180Go(dst []byte, dstStride int, src []byte, srcStride, width, height int) {
+	for y := 0; y < height; y++ {
+		destination := dst[y*dstStride:]
+		source := src[(height-1-y)*srcStride:]
+		for x := 0; x < width; x++ {
+			sourceOffset, destinationOffset := (width-1-x)*4, x*4
+			copy(destination[destinationOffset:destinationOffset+4], source[sourceOffset:sourceOffset+4])
 		}
 	}
 }

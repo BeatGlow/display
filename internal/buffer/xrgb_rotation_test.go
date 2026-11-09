@@ -55,7 +55,7 @@ func TestCopyToXRGBRotated(t *testing.T) {
 func TestCopyToXRGBRotatedTiles(t *testing.T) {
 	const width, height = 12, 8
 	native := image.Rect(0, 0, width, height)
-	for _, r := range []display.Rotation{display.Rotate90, display.Rotate270} {
+	for _, r := range []display.Rotation{display.Rotate90, display.Rotate180, display.Rotate270} {
 		logical := image.NewRGBA(rotation.Bounds(native, r))
 		for y := 0; y < logical.Bounds().Dy(); y++ {
 			for x := 0; x < logical.Bounds().Dx(); x++ {
@@ -108,9 +108,24 @@ func BenchmarkCopyToXRGBRotation(b *testing.B) {
 				}
 			}
 		})
-		if r == display.Rotate90 || r == display.Rotate270 {
+		if r == display.Rotate90 || r == display.Rotate180 || r == display.Rotate270 {
+			logicalStride := src.Bounds().Dx() * 4
+			b.Run(r.String()+"-PackedXRGB", func(b *testing.B) {
+				b.SetBytes(int64(width * height * 4))
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					switch r {
+					case display.Rotate90:
+						rotateXRGB90(dst, stride, scratch, logicalStride, width, height)
+					case display.Rotate180:
+						rotateXRGB180(dst, stride, scratch, logicalStride, width, height)
+					case display.Rotate270:
+						rotateXRGB270(dst, stride, scratch, logicalStride, width, height)
+					}
+				}
+			})
 			b.Run(r.String()+"-Go", func(b *testing.B) {
-				logicalStride := src.Bounds().Dx() * 4
 				b.SetBytes(int64(width * height * 4))
 				b.ReportAllocs()
 				b.ResetTimer()
@@ -118,9 +133,12 @@ func BenchmarkCopyToXRGBRotation(b *testing.B) {
 					if err := CopyToXRGB(scratch, logicalStride, src); err != nil {
 						b.Fatal(err)
 					}
-					if r == display.Rotate90 {
+					switch r {
+					case display.Rotate90:
 						rotateXRGB90Go(dst, stride, scratch, logicalStride, width, height)
-					} else {
+					case display.Rotate180:
+						rotateXRGB180Go(dst, stride, scratch, logicalStride, width, height)
+					case display.Rotate270:
 						rotateXRGB270Go(dst, stride, scratch, logicalStride, width, height)
 					}
 				}

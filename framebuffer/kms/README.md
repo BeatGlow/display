@@ -25,16 +25,21 @@ not use a DRM plane rotation property.
 RGBA-to-XRGB8888 conversion benchmarks at 800×480 on the Raspberry Pi 3
 (ARMv8, Go ARM64, one second per subtest):
 
-| Rotation | 4×4 NEON tile path | Scalar Go reference | Speedup |
+| Rotation | Optimized ARM64 path | Scalar Go reference | Speedup |
 | --- | ---: | ---: | ---: |
-| 90° | 5.93 ms | 24.39 ms | 4.11× |
-| 180° | 21.42 ms | — | — |
-| 270° | 6.27 ms | 26.11 ms | 4.16× |
+| 90° | 5.98 ms | 24.33 ms | 4.07× |
+| 180° | 3.93 ms | 9.63 ms | 2.45× |
+| 270° | 6.33 ms | 26.17 ms | 4.13× |
 
 The NEON path transposes 4×4 pixel tiles for 90° and 270° across CPU row bands;
-edges use the portable path. It runs independent bands in parallel. These
-conversion-only results allocate 474 B (7 allocations) per 90° conversion and
-536 B (7 allocations) per 270° conversion on the Pi 3.
+edges use the portable path. For 180°, it mirrors four XRGB pixels per NEON
+vector and reverses row order. Independent row bands run in parallel. These
+conversion-only results allocate about 450–560 B (7 allocations) per frame on
+the Pi 3.
+
+If the producer already supplies packed XRGB8888, it can skip the initial
+RGBA-to-XRGB conversion. On the Pi 3 this reduced the conversion benchmark from
+5.98 to 4.70 ms at 90°, 3.93 to 2.05 ms at 180°, and 6.33 to 4.52 ms at 270°.
 Reproduce with `go test ./internal/buffer -run '^$' -bench
 '^BenchmarkCopyToXRGBRotation$' -benchmem -benchtime=1s`.
 
