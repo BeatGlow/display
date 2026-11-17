@@ -35,7 +35,7 @@ func main() {
 	cePinFlag := flag.String("ce", "GPIO8", "Chip enable GPIO pin")
 	blPinFlag := flag.String("bl", "GPIO19", "Backlight GPIO pin")
 	rotateFlag := flag.String("rotate", "", "Display rotation")
-	colorFlag := flag.String("color", "mono", "Offline virtual display color model: mono, gray2, gray4, rgb15, rgb16")
+	colorFlag := flag.String("color", "mono", "Offline virtual display color model: mono, gray2, gray4, rgb15, rgb16, yu12")
 	outputFlag := flag.String("output", "display.png", "Offline preview PNG path")
 	traceFlag := flag.String("trace", "display.trace.json", "Offline command/data trace path")
 	contrastFlag := flag.Int("contrast", -1, "Set driver contrast/brightness for offline checks (0-255)")
@@ -224,6 +224,9 @@ func main() {
 	case pixel.CRGB16Model:
 		bits = 16
 		fmt.Println("using color model: 16-bit RGB")
+	case color.YCbCrModel:
+		bits = 12
+		fmt.Println("using color model: planar 12-bit YUV 4:2:0")
 	default:
 		fmt.Println("using color model: something else")
 	}

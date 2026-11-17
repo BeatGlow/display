@@ -421,8 +421,10 @@ func newVirtualDisplay(width, height int, modelName string) (display.Display, er
 		img, model = pixel.NewCRGB15Image(width, height), pixel.CRGB15Model
 	case "rgb16":
 		img, model = pixel.NewCRGB16Image(width, height), pixel.CRGB16Model
+	case "yu12":
+		img, model = pixel.NewYU12Image(width, height), color.YCbCrModel
 	default:
-		return nil, fmt.Errorf("unsupported offline color model %q (choose mono, gray2, gray4, rgb15, or rgb16)", modelName)
+		return nil, fmt.Errorf("unsupported offline color model %q (choose mono, gray2, gray4, rgb15, rgb16, or yu12)", modelName)
 	}
 	return &virtualDisplay{Image: img, model: model}, nil
 }
