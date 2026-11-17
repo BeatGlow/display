@@ -2,6 +2,7 @@ package pixel
 
 import (
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 )
@@ -16,19 +17,75 @@ type YU12Image struct {
 	Buffer
 	chromaStride int
 	chromaHeight int
+	ySize        int
+	uOffset      int
+	vOffset      int
+}
+
+// YU12Planes is a borrowed view of a YU12Image's planes. Slices include row
+// padding. The view is valid only while the image's backing memory is valid;
+// callers must not retain it beyond that lifetime or mutate it concurrently.
+type YU12Planes struct {
+	Y, U, V                   []byte
+	Width, Height             int
+	ChromaWidth, ChromaHeight int
+	YStride, UVStride         int
 }
 
 // NewYU12Image allocates a planar YUV 4:2:0 image with the given dimensions.
 func NewYU12Image(w, h int) *YU12Image {
-	chromaStride := (w + 1) / 2
-	chromaHeight := (h + 1) / 2
+	chromaStride := w/2 + w%2
+	chromaHeight := h/2 + h%2
 	ySize := w * h
 	chromaSize := chromaStride * chromaHeight
 	return &YU12Image{
 		Buffer:       makeBuffer(w, h, w, ySize+2*chromaSize),
 		chromaStride: chromaStride,
 		chromaHeight: chromaHeight,
+		ySize:        ySize,
+		uOffset:      ySize,
+		vOffset:      ySize + chromaSize,
 	}
+}
+
+// WrapYU12 wraps caller-owned contiguous Y, U, and V storage without copying.
+// Plane offsets are YStride*height, then UVStride*ceil(height/2), with chroma
+// dimensions ceil(width/2) by ceil(height/2). The caller retains ownership,
+// must keep storage valid while the image or its plane views are used, and
+// must not reuse or mutate it concurrently. Padding bytes are included in the
+// required buffer length.
+func WrapYU12(pix []byte, width, height, yStride, uvStride int) (*YU12Image, error) {
+	if width <= 0 || height <= 0 {
+		return nil, fmt.Errorf("pixel: invalid YU12 dimensions %dx%d", width, height)
+	}
+	cw, ch := width/2+width%2, height/2+height%2
+	if yStride < width {
+		return nil, fmt.Errorf("pixel: YU12 Y stride %d is less than width %d", yStride, width)
+	}
+	if uvStride < cw {
+		return nil, fmt.Errorf("pixel: YU12 UV stride %d is less than chroma width %d", uvStride, cw)
+	}
+	if yStride > int(^uint(0)>>1)/height {
+		return nil, fmt.Errorf("pixel: YU12 plane size overflows int")
+	}
+	ySize := yStride * height
+	maxInt := int(^uint(0) >> 1)
+	if ch > maxInt/2 || uvStride > (maxInt-ySize)/(2*ch) {
+		return nil, fmt.Errorf("pixel: YU12 buffer size overflows int")
+	}
+	uSize := uvStride * ch
+	need := ySize + 2*uSize
+	if len(pix) < need {
+		return nil, fmt.Errorf("pixel: YU12 buffer too short: got %d bytes, need %d", len(pix), need)
+	}
+	return &YU12Image{Buffer: Buffer{Rect: image.Rect(0, 0, width, height), Pix: pix[:need], Stride: yStride}, chromaStride: uvStride, chromaHeight: ch, ySize: ySize, uOffset: ySize, vOffset: ySize + uSize}, nil
+}
+
+// Planes returns a lightweight borrowed view of the image storage.
+func (p *YU12Image) Planes() YU12Planes {
+	uSize := p.chromaStride * p.chromaHeight
+	w := p.Rect.Dx()
+	return YU12Planes{Y: p.Pix[:p.ySize], U: p.Pix[p.uOffset:p.vOffset], V: p.Pix[p.vOffset : p.vOffset+uSize], Width: w, Height: p.Rect.Dy(), ChromaWidth: w/2 + w%2, ChromaHeight: p.chromaHeight, YStride: p.Stride, UVStride: p.chromaStride}
 }
 
 func (p *YU12Image) ColorModel() color.Model {
@@ -37,8 +94,8 @@ func (p *YU12Image) ColorModel() color.Model {
 
 func (p *YU12Image) chromaOffsets(x, y int) (int, int) {
 	chroma := (y/2)*p.chromaStride + x/2
-	u := p.Stride*p.Rect.Dy() + chroma
-	v := u + p.chromaStride*p.chromaHeight
+	u := p.uOffset + chroma
+	v := p.vOffset + chroma
 	return u, v
 }
 
@@ -125,9 +182,8 @@ func (p *YU12Image) CopyRGBA(src *image.RGBA) error {
 func (p *YU12Image) Fill(c color.Color) {
 	r, g, b, _ := c.RGBA()
 	y8, u8, v8 := color.RGBToYCbCr(uint8(r>>8), uint8(g>>8), uint8(b>>8))
-	ySize := p.Stride * p.Rect.Dy()
-	chromaSize := p.chromaStride * p.chromaHeight
-	fillRepeatedByte(p.Pix[:ySize], y8)
-	fillRepeatedByte(p.Pix[ySize:ySize+chromaSize], u8)
-	fillRepeatedByte(p.Pix[ySize+chromaSize:], v8)
+	uSize := p.chromaStride * p.chromaHeight
+	fillRepeatedByte(p.Pix[:p.ySize], y8)
+	fillRepeatedByte(p.Pix[p.uOffset:p.uOffset+uSize], u8)
+	fillRepeatedByte(p.Pix[p.vOffset:p.vOffset+uSize], v8)
 }
