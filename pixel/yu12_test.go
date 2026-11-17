@@ -45,6 +45,49 @@ func TestYU12CopyRGBAConvertsSubsampledImage(t *testing.T) {
 	}
 }
 
+func TestYU12CopyRGBAColorRoundRobinAllowsLossyRoundTrip(t *testing.T) {
+	const width, height = 18, 8
+	palette := []color.RGBA{
+		{R: 0, G: 0, B: 0, A: 255},
+		{R: 255, G: 255, B: 255, A: 255},
+		{R: 255, G: 0, B: 0, A: 255},
+		{R: 0, G: 255, B: 0, A: 255},
+		{R: 0, G: 0, B: 255, A: 255},
+		{R: 0, G: 255, B: 255, A: 255},
+		{R: 255, G: 0, B: 255, A: 255},
+		{R: 255, G: 255, B: 0, A: 255},
+	}
+	const tolerance = 2
+	for round := range 4 {
+		src := image.NewRGBA(image.Rect(0, 0, width, height))
+		for y := 0; y < height; y++ {
+			for x := 0; x < width; x++ {
+				block := (y/2)*(width/2) + x/2
+				src.SetRGBA(x, y, palette[(block+round)%len(palette)])
+			}
+		}
+		got := NewYU12Image(width, height)
+		if err := got.CopyRGBA(src); err != nil {
+			t.Fatalf("round %d: %v", round, err)
+		}
+		for y := 0; y < height; y++ {
+			for x := 0; x < width; x++ {
+				want := src.RGBAAt(x, y)
+				r, g, b, _ := got.At(x, y).RGBA()
+				for channel, pair := range [][2]uint8{
+					{uint8(r >> 8), want.R},
+					{uint8(g >> 8), want.G},
+					{uint8(b >> 8), want.B},
+				} {
+					if delta := int(pair[0]) - int(pair[1]); delta < -tolerance || delta > tolerance {
+						t.Fatalf("round %d pixel (%d,%d) channel %d differs by %d; want within ±%d", round, x, y, channel, delta, tolerance)
+					}
+				}
+			}
+		}
+	}
+}
+
 func BenchmarkYU12CopyRGBA(b *testing.B) {
 	const width, height = 1280, 720
 	src := image.NewRGBA(image.Rect(0, 0, width, height))
