@@ -158,7 +158,7 @@ func TestRecordingConnectionAndVirtualDisplays(t *testing.T) {
 		t.Fatalf("recorded traffic = %#v; counts commands=%d bytes=%d", c.events, c.commands, c.dataBytes)
 	}
 
-	for _, model := range []string{"mono", "gray2", "gray4", "rgb15", "rgb16"} {
+	for _, model := range []string{"mono", "gray2", "gray4", "rgb15", "rgb16", "yu12"} {
 		t.Run(model, func(t *testing.T) {
 			d, err := newVirtualDisplay(4, 3, model)
 			if err != nil {

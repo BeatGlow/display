@@ -138,7 +138,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        color: [mono, gray2, gray4, rgb15, rgb16]
+        color: [mono, gray2, gray4, rgb15, rgb16, yu12]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -259,7 +259,7 @@ jobs:
           if os.environ["ALL_DRIVERS"] == "1":
               expected.extend([
                   "virtual-mono.png", "virtual-gray2.png", "virtual-gray4.png",
-                  "virtual-rgb15.png", "virtual-rgb16.png",
+                  "virtual-rgb15.png", "virtual-rgb16.png", "virtual-yu12.png",
               ])
           expected.extend(f"{driver}.png" for driver in json.loads(os.environ["EXPECTED_DRIVERS"]))
 
@@ -402,8 +402,8 @@ jobs:
           virtual_count=0
           screens=("${drivers[@]}")
           if [[ "$ALL_DRIVERS" == "1" ]]; then
-            virtual_count=5
-            screens=(virtual-mono virtual-gray2 virtual-gray4 virtual-rgb15 virtual-rgb16 "${drivers[@]}")
+            virtual_count=6
+            screens=(virtual-mono virtual-gray2 virtual-gray4 virtual-rgb15 virtual-rgb16 virtual-yu12 "${drivers[@]}")
           fi
 
           {
