@@ -39,6 +39,8 @@ const (
 	FormatCRGB15
 	// FormatCRGB16 identifies the packed 16-bit RGB format.
 	FormatCRGB16
+	// FormatYU12 identifies planar 8-bit YUV 4:2:0 (Y, U, V) storage.
+	FormatYU12
 )
 
 // PixelView exposes storage for optional, format-aware drawing fast paths.
@@ -121,6 +123,11 @@ func (p *CRGB15Image) PixelView() PixelView {
 // PixelView returns the packed pixel storage and format of p.
 func (p *CRGB16Image) PixelView() PixelView {
 	return PixelView{Pix: p.Pix, Stride: p.Stride, Bounds: p.Rect, Format: FormatCRGB16, Order: p.Order}
+}
+
+// PixelView returns the planar pixel storage and format of p.
+func (p *YU12Image) PixelView() PixelView {
+	return PixelView{Pix: p.Pix, Stride: p.Stride, Bounds: p.Rect, Format: FormatYU12}
 }
 
 func makeBuffer(w, h, stride, size int) Buffer {
@@ -525,4 +532,5 @@ var (
 	_ Image = (*CBGR16Image)(nil)
 	_ Image = (*CRGB15Image)(nil)
 	_ Image = (*CRGB16Image)(nil)
+	_ Image = (*YU12Image)(nil)
 )

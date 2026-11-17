@@ -1,0 +1,61 @@
+#include "textflag.h"
+
+// copyYU12LumaChunk converts four RGBA pixels per iteration with SSE2.
+TEXT ·copyYU12LumaChunk(SB), NOSPLIT, $0-56
+	MOVQ dst_base+0(FP), AX
+	MOVQ dst_len+8(FP), BX
+	MOVQ src_base+24(FP), CX
+	MOVOU ·yu12Mask<>(SB), X7
+	MOVOU ·yu12RG<>(SB), X5
+	MOVOU ·yu12GB<>(SB), X6
+	MOVOU ·yu12Round<>(SB), X4
+	PXOR X3, X3
+	XORQ DX, DX
+
+loop:
+	CMPQ BX, $4
+	JL done
+	MOVOU 0(CX), X0
+	MOVOU X0, X1
+	PAND X7, X1
+	MOVOU X0, X2
+	PSRLL $8, X2
+	PAND X7, X2
+	MOVOU X0, X0
+	PSRLL $16, X0
+	PAND X7, X0
+	PACKSSLW X1, X1
+	PACKSSLW X2, X2
+	PACKSSLW X0, X0
+	PUNPCKLWL X2, X1
+	PMADDWL X5, X1
+	PUNPCKLWL X0, X2
+	PMADDWL X6, X2
+	PADDD X2, X1
+	PADDD X4, X1
+	PSRLL $16, X1
+	PACKSSLW X1, X1
+	PACKUSWB X1, X1
+	MOVD X1, 0(AX)
+	ADDQ $16, CX
+	ADDQ $4, AX
+	SUBQ $4, BX
+	ADDQ $4, DX
+	JMP loop
+
+done:
+	MOVQ DX, ret+48(FP)
+	RET
+
+DATA ·yu12Mask<>+0(SB)/8, $0x000000ff000000ff
+DATA ·yu12Mask<>+8(SB)/8, $0x000000ff000000ff
+GLOBL ·yu12Mask<>(SB), RODATA|NOPTR, $16
+DATA ·yu12RG<>+0(SB)/8, $0x7fff4c8b7fff4c8b
+DATA ·yu12RG<>+8(SB)/8, $0x7fff4c8b7fff4c8b
+GLOBL ·yu12RG<>(SB), RODATA|NOPTR, $16
+DATA ·yu12GB<>+0(SB)/8, $0x1d2f16471d2f1647
+DATA ·yu12GB<>+8(SB)/8, $0x1d2f16471d2f1647
+GLOBL ·yu12GB<>(SB), RODATA|NOPTR, $16
+DATA ·yu12Round<>+0(SB)/8, $0x0000800000008000
+DATA ·yu12Round<>+8(SB)/8, $0x0000800000008000
+GLOBL ·yu12Round<>(SB), RODATA|NOPTR, $16
