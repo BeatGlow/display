@@ -1,3 +1,5 @@
+//go:build arm64
+
 #include "textflag.h"
 
 // copyYU12LumaChunk converts eight RGBA pixels per iteration with NEON.
