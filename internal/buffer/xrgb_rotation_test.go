@@ -55,11 +55,15 @@ func TestCopyToXRGBRotated(t *testing.T) {
 }
 
 func TestCopyToXRGBRotatedTiles(t *testing.T) {
-	const width, height = 12, 8
+	// Exercise both eight-row tiles and a final four-row tail in one worker.
+	prev := runtime.GOMAXPROCS(1)
+	defer runtime.GOMAXPROCS(prev)
+	const width, height = 12, 20
 	native := image.Rect(0, 0, width, height)
 	for _, r := range []display.Rotation{display.Rotate90, display.Rotate180, display.Rotate270} {
 		logicalBounds := rotation.Bounds(native, r).Add(image.Pt(2, 3))
-		logical := image.NewRGBA(logicalBounds)
+		parent := image.NewRGBA(logicalBounds.Inset(-1))
+		logical := parent.SubImage(logicalBounds).(*image.RGBA)
 		for y := 0; y < logical.Bounds().Dy(); y++ {
 			for x := 0; x < logical.Bounds().Dx(); x++ {
 				logical.SetRGBA(logicalBounds.Min.X+x, logicalBounds.Min.Y+y, color.RGBA{R: uint8(x + 1), G: uint8(y + 2), B: 0x63, A: 0xff})

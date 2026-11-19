@@ -23,7 +23,7 @@ the CPU shadow image into the native scanout buffer during `Refresh`; it does
 not use a DRM plane rotation property.
 
 RGBA-to-XRGB8888 benchmarks at 800×480, with three 2-second subtest samples
-on a Raspberry Pi 3 (ARMv8, Go ARM64):
+on a Raspberry Pi 3 (ARMv8, Go ARM64) before the 90° kernel update:
 
 | Rotation | Optimized ARM64 path | Scalar Go reference | Speedup |
 | --- | ---: | ---: | ---: |
@@ -33,9 +33,12 @@ on a Raspberry Pi 3 (ARMv8, Go ARM64):
 
 The no-rotation conversion measured 1.21 ms on the same Pi 3.
 
-The ARM64 NEON path fuses RGBA channel packing with the rotation. It transposes
-4×4 pixel tiles for 90° and 270°, and mirrors four pixels per vector for 180°;
-independent row bands run in parallel. The amd64 path uses fused SSE2 4×4
+The ARM64 NEON path fuses RGBA channel packing with the rotation. For 90° it reads
+eight adjacent pixels from each of four source rows, packs their channels with
+a byte lookup, and transposes two 4×4 tiles into eight scanout rows. A worker
+with four rows left processes one 4×4 tile at a time. The 270° kernel uses 4×4
+tiles, and the 180° kernel mirrors four pixels per vector. Independent row bands
+run in parallel. The amd64 path uses fused SSE2 4×4
 transpose tiles for quarter turns and a SIMD mirror for 180°. Both have a
 portable Go fallback for dimensions that do not fit their tile. On the Pi 3,
 the rotated conversion paths allocate 448 B (7 allocations) per frame.
