@@ -33,12 +33,32 @@ on a Raspberry Pi 3 (ARMv8, Go ARM64) before the 90° kernel update:
 
 The no-rotation conversion measured 1.21 ms on the same Pi 3.
 
-The ARM64 NEON path fuses RGBA channel packing with the rotation. For 90° it reads
-eight adjacent pixels from each of four source rows, packs their channels with
-a byte lookup, and transposes two 4×4 tiles into eight scanout rows. A worker
-with four rows left processes one 4×4 tile at a time. The 270° kernel uses 4×4
-tiles, and the 180° kernel mirrors four pixels per vector. Independent row bands
-run in parallel. The amd64 path uses fused SSE2 4×4
+On a Raspberry Pi 4, the arm64 90° kernel transposes four 4×4 tiles in
+registers and writes 64 contiguous bytes to each of four destination rows. It
+works across strips of up to 64 source rows to keep recently read pixels in
+cache. A final partial strip uses 16-byte stores for the remaining 4×4 tiles.
+
+At 1280×400 with four workers, rotating an RGBA image into alternating private
+DRM dumb buffers on the Pi 4 gave these medians. Each revision ran five
+interleaved one-second samples while the StereoScope sidecar was active at
+25 FPS. CPU time sums user and system time across the benchmark process.
+
+| Destination and metric | Before | After |
+| --- | ---: | ---: |
+| DRM mapping, elapsed time per frame | 3.591 ms | 1.719 ms |
+| DRM mapping, CPU time per frame | 7.960 ms | 3.540 ms |
+| Go heap, elapsed time per frame | 0.839 ms | 0.836 ms |
+
+To measure conversion on a DRM mapping, set the card path for your system.
+The benchmark creates two private buffers and does not queue a page flip.
+
+```sh
+DISPLAY_BENCH_DRM_CARD=/dev/dri/card1 go test ./framebuffer/kms -run '^$' \
+  -bench '^BenchmarkMappedRotation90$' -cpu=4 -benchtime=1s -count=5
+```
+
+The 270° arm64 kernel uses 4×4 tiles, and the 180° kernel mirrors four pixels
+per vector. Independent row bands run in parallel. The amd64 path uses fused SSE2 4×4
 transpose tiles for quarter turns and a SIMD mirror for 180°. Both have a
 portable Go fallback for dimensions that do not fit their tile. On the Pi 3,
 the rotated conversion paths allocate 448 B (7 allocations) per frame.
@@ -49,7 +69,7 @@ RGBA-to-XRGB conversion. On the Pi 3, the packed-XRGB benchmark measured
 Reproduce with `go test ./internal/buffer -run '^$' -bench
 '^BenchmarkCopyToXRGBRotation$' -benchmem -benchtime=2s -count=3`.
 
-The same 800×480 RGBA benchmark on an Apple M2 measured 38.2 µs at 0°,
+Before the 90° kernel update, the 800×480 RGBA benchmark on an Apple M2 measured 38.2 µs at 0°,
 31.9 µs at 90°, 44.3 µs at 180°, and 31.6 µs at 270°. On an Intel N100 it
 measured 77.3 µs at 0°, 66.4 µs at 90°, 62.6 µs at 180°, and 67.3 µs at 270°.
 The Apple M2 results use two to three 2-second samples; the Intel N100 results

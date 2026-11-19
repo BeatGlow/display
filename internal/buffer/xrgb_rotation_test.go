@@ -55,10 +55,7 @@ func TestCopyToXRGBRotated(t *testing.T) {
 }
 
 func TestCopyToXRGBRotatedTiles(t *testing.T) {
-	// Exercise both eight-row tiles and a final four-row tail in one worker.
-	prev := runtime.GOMAXPROCS(1)
-	defer runtime.GOMAXPROCS(prev)
-	const width, height = 12, 20
+	const width, height = 84, 20
 	native := image.Rect(0, 0, width, height)
 	for _, r := range []display.Rotation{display.Rotate90, display.Rotate180, display.Rotate270} {
 		logicalBounds := rotation.Bounds(native, r).Add(image.Pt(2, 3))
