@@ -35,15 +35,15 @@ The no-rotation conversion measured 1.21 ms on the same Pi 3.
 
 On a Raspberry Pi 4, the arm64 90° kernel transposes four 4×4 tiles in
 registers and writes 64 contiguous bytes to each of four destination rows. It
-works across strips of up to 64 source rows to keep recently read pixels in
-cache. A final partial strip uses 16-byte stores for the remaining 4×4 tiles.
+revisits the same 16 source rows as it advances through a worker’s scanout
+rows. A final partial strip uses 16-byte stores for the remaining 4×4 tiles.
 
 At 1280×400 with four workers, rotating an RGBA image into alternating private
 DRM dumb buffers on the Pi 4 gave these medians. Each revision ran five
 interleaved one-second samples while the StereoScope sidecar was active at
 25 FPS. CPU time sums user and system time across the benchmark process.
 
-| Destination and metric | Before | After |
+| Destination and metric | v1.4.2 | v1.4.3 |
 | --- | ---: | ---: |
 | DRM mapping, elapsed time per frame | 3.591 ms | 1.719 ms |
 | DRM mapping, CPU time per frame | 7.960 ms | 3.540 ms |
