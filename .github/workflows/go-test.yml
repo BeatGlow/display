@@ -24,8 +24,16 @@ permissions:
 
 jobs:
   go-test:
-    name: go-test
-    runs-on: ubuntu-latest
+    name: go-test (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -50,7 +58,7 @@ jobs:
           packages=()
           for path in "${changed_files[@]}"; do
             case "$path" in
-              go.mod|go.sum)
+              go.mod|go.sum|.github/workflows/go-test.yml)
                 test_all=1
                 ;;
               *.go|*.s)
@@ -73,3 +81,17 @@ jobs:
             printf 'Testing changed packages: %s\n' "${packages[*]}"
             go test "${packages[@]}"
           fi
+      - name: Check stroke coverage
+        shell: bash
+        run: |
+          go test -run '^TestLineAA' -coverprofile="$RUNNER_TEMP/stroke.cover" ./draw
+          awk '
+            /\/draw\/(line_aa|stroke_other)\.go:/ {
+              total += $2
+              if ($3 == 0) { missed += $2; print "Uncovered", $1 }
+            }
+            END {
+              printf "Stroke coverage: %d/%d Go statements\n", total - missed, total
+              exit (total == 0 || missed != 0)
+            }
+          ' "$RUNNER_TEMP/stroke.cover"
