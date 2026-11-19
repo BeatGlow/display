@@ -268,31 +268,33 @@ TEXT ·rotateRGBA90ARM64(SB), NOSPLIT, $0-96
 	CBZ R4, doneRGBA90
 	LSL $2, R3, R11
 	MOVD $0, R19
-// Revisit at most 64 source rows while rotating each worker band.
+// Sixteen source rows produce one 64-byte store per scanout row.
 stripRGBA90:
 	SUB R19, R4, R20
-	CMP $64, R20
+	CMP $16, R20
 	BLE stripWidthRGBA90
-	MOVD $64, R20
+	MOVD $16, R20
 stripWidthRGBA90:
+	// R21 walks left by four source pixels as R22 advances four scanout rows.
 	MOVD startY+80(FP), R6
+	SUB R6, R5, R21
+	SUB $4, R21
+	ADD R21<<2, R2, R21
+	MADD R3, R21, R19, R21
+	MADD R1, R0, R6, R22
+	ADD R19<<2, R22, R22
 yloopRGBA90:
 	CMP R15, R6
 	BGE nextStripRGBA90
-	SUB R6, R5, R8
-	SUB $4, R8
-	ADD R8<<2, R2, R8
-	MADD R3, R8, R19, R8
+	MOVD R21, R8
 	ADD R3, R8, R9
 	ADD R3, R9, R10
 	ADD R3, R10, R12
-	MADD R1, R0, R6, R13
-	ADD R19<<2, R13, R13
+	MOVD R22, R13
 	ADD R1, R13, R14
 	ADD R1, R14, R16
 	ADD R1, R16, R17
 	MOVD R20, R7
-xloopRGBA90:
 	CMP $16, R7
 	BLT tailRGBA90
 	// Accumulate 16 output pixels per row before touching the DRM mapping.
@@ -304,8 +306,7 @@ xloopRGBA90:
 	VST1.P [V20.B16, V21.B16, V22.B16, V23.B16], 64(R14)
 	VST1.P [V24.B16, V25.B16, V26.B16, V27.B16], 64(R16)
 	VST1.P [V28.B16, V29.B16, V30.B16, V31.B16], 64(R17)
-	SUB $16, R7
-	B xloopRGBA90
+	B nextRGBA90
 tailRGBA90:
 	CBZ R7, nextRGBA90
 	TRANSPOSE_RGBA90(V16, V20, V24, V28)
@@ -316,6 +317,8 @@ tailRGBA90:
 	SUB $4, R7
 	B tailRGBA90
 nextRGBA90:
+	SUB $16, R21
+	ADD R1<<2, R22, R22
 	ADD $4, R6
 	B yloopRGBA90
 nextStripRGBA90:
