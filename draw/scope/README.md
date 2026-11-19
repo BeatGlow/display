@@ -5,6 +5,11 @@ A Renderer owns its signal, filter state, phosphor charge, blur buffers,
 optical remap and color tables. Create it once for the destination bounds,
 then update and render from one goroutine.
 
+The [BeatGlow splash SVG](testdata/beatglow.svg) uses the current waveform-circle
+mark and approved Fugaz One wordmark as monochrome outlines. The runnable
+[example](example_test.go) embeds this asset and renders it at 400×128 with
+`CRTBulge = 0.31`.
+
 ```go
 cfg := scope.DefaultConfig()
 renderer, err := scope.NewRenderer(dst.Bounds(), cfg)
