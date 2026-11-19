@@ -1,9 +1,12 @@
 package draw_test
 
 import (
+	"bytes"
 	"image"
 	"image/color"
 	stddraw "image/draw"
+	"math"
+	"math/rand"
 	"testing"
 
 	"github.com/BeatGlow/display/draw"
@@ -88,6 +91,85 @@ func TestLineAAStrokeWidthAndEndpoints(t *testing.T) {
 				t.Errorf("(%d,%d) = %v, want %v", x, y, got, want)
 			}
 		}
+	}
+}
+
+// Overlapping translucent strokes must produce the same pixels on a direct
+// RGBA surface and through the generic draw.Image path, including at clip edges.
+func TestLineAAOverlappingStrokesMatchGenericSurface(t *testing.T) {
+	rect := image.Rect(-30, 17, 31, 86)
+	direct, ref := image.NewRGBA(rect), image.NewRGBA(rect)
+	bounds := rect.Inset(3)
+	target := direct.SubImage(bounds).(*image.RGBA)
+	reference := strokeImage{ref.SubImage(bounds).(*image.RGBA)}
+	rng := rand.New(rand.NewSource(123))
+	point := func() image.Point { return image.Pt(rng.Intn(105)-52, rng.Intn(100)) }
+	for i := 0; i < 500; i++ {
+		a, b := point(), point()
+		width, alpha := rng.Intn(10), rng.Intn(256)
+		channel := func() uint8 { return uint8(rng.Intn(alpha + 1)) }
+		ink := color.RGBA{R: channel(), G: channel(), B: channel(), A: uint8(alpha)}
+		draw.LineAA(target, a, b, width, ink)
+		draw.LineAA(reference, a, b, width, ink)
+		if !bytes.Equal(direct.Pix, ref.Pix) {
+			t.Fatalf("stroke %d from %v to %v, width %d, ink %v differs from generic surface", i, a, b, width, ink)
+		}
+	}
+}
+
+func TestLineAANothingVisible(t *testing.T) {
+	rect := image.Rect(0, 0, 4, 4)
+	white := color.RGBA{255, 255, 255, 255}
+	for _, tc := range []struct {
+		name   string
+		bounds image.Rectangle
+		a, b   image.Point
+		ink    color.RGBA
+	}{
+		{"empty", image.Rectangle{}, image.Pt(0, 0), image.Pt(1, 1), white},
+		{"transparent", rect, image.Pt(0, 0), image.Pt(3, 3), color.RGBA{}},
+		{"point outside", rect, image.Pt(-1, 0), image.Pt(-1, 0), white},
+		{"major axis outside", rect, image.Pt(4, 0), image.Pt(9, 1), white},
+		{"minor axis outside", rect, image.Pt(-2, 6), image.Pt(9, 7), white},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			parent := image.NewRGBA(rect)
+			for i := range parent.Pix {
+				parent.Pix[i] = 0x77
+			}
+			want := bytes.Clone(parent.Pix)
+			draw.LineAA(parent.SubImage(tc.bounds).(*image.RGBA), tc.a, tc.b, 1, tc.ink)
+			if !bytes.Equal(parent.Pix, want) {
+				t.Fatal("invisible stroke altered the destination")
+			}
+		})
+	}
+}
+
+func TestLineAALargeCoordinatesKeepPixelCoverage(t *testing.T) {
+	// A small rectangle near the integer limit still has distinct pixel centers.
+	y := math.MaxInt - 4
+	dst := image.NewRGBA(image.Rect(-1, y, 2, y+3))
+	ink := color.RGBA{R: 96, A: 128}
+	draw.LineAA(dst, image.Pt(math.MinInt, y+1), image.Pt(math.MaxInt, y+1), -1, ink)
+	for row := 0; row < 3; row++ {
+		for x := -1; x <= 1; x++ {
+			want := color.RGBA{}
+			if row == 1 {
+				want = ink
+			}
+			if got := dst.RGBAAt(x, y+row); got != want {
+				t.Fatalf("(%d, row %d) = %v, want %v", x, row, got, want)
+			}
+		}
+	}
+	// Recenter the same sloped, clipped stroke for the native rectangle path.
+	near := image.NewRGBA(image.Rect(-1, 0, 2, 3))
+	copy(near.Pix, dst.Pix)
+	draw.LineAA(near, image.Pt(-2, 0), image.Pt(2, 2), 2, ink)
+	draw.LineAA(dst, image.Pt(-2, y), image.Pt(2, y+2), 2, ink)
+	if !bytes.Equal(near.Pix, dst.Pix) {
+		t.Fatal("translation changed stroke coverage")
 	}
 }
 
