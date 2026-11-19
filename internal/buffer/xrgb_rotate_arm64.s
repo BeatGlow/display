@@ -405,7 +405,10 @@ nextyRGBA270:
 doneRGBA270:
 	RET
 
-// Select B,G,R from each RGBA pixel. Out-of-range indices produce zero.
+// Shuffle indices in little-endian memory order, grouped by output pixel:
+//   02 01 00 ff | 06 05 04 ff | 0a 09 08 ff | 0e 0d 0c ff
+// Each group selects B, G, R. For X, VTBL returns zero because index 0xff
+// is outside the 16-byte source table (valid indices 0x00 through 0x0f).
 DATA rgbaToXRGB<>+0(SB)/8, $0xff040506ff000102
 DATA rgbaToXRGB<>+8(SB)/8, $0xff0c0d0eff08090a
 GLOBL rgbaToXRGB<>(SB), RODATA|NOPTR, $16
