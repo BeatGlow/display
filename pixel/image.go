@@ -41,6 +41,8 @@ const (
 	FormatCRGB16
 	// FormatYU12 identifies planar 8-bit YUV 4:2:0 (Y, U, V) storage.
 	FormatYU12
+	// FormatGray3Level identifies the packed three-level grayscale format.
+	FormatGray3Level
 )
 
 // PixelView exposes storage for optional, format-aware drawing fast paths.
@@ -297,6 +299,62 @@ func (p *Gray2Image) Fill(c color.Color) {
 	fillRepeatedByte(p.Pix, value)
 }
 
+// Gray3LevelImage is a three-level grayscale image. Each row stores four
+// pixels per byte, with the leftmost pixel in bits 7–6 and code 11 reserved.
+type Gray3LevelImage struct {
+	Buffer
+}
+
+// NewGray3LevelImage allocates a three-level grayscale image.
+func NewGray3LevelImage(w, h int) *Gray3LevelImage {
+	stride := (w + 3) / 4
+	return &Gray3LevelImage{Buffer: makeBuffer(w, h, stride, h*stride)}
+}
+
+func (p *Gray3LevelImage) ColorModel() color.Model {
+	return Gray3LevelModel
+}
+
+// PixelView returns the packed pixel storage and format of p.
+func (p *Gray3LevelImage) PixelView() PixelView {
+	return PixelView{Pix: p.Pix, Stride: p.Stride, Bounds: p.Rect, Format: FormatGray3Level}
+}
+
+func (p *Gray3LevelImage) At(x, y int) color.Color {
+	if !(image.Point{X: x, Y: y}).In(p.Rect) {
+		return color.Transparent
+	}
+	return p.Gray3LevelAt(x, y)
+}
+
+// Gray3LevelAt returns the pixel at (x, y), or black outside the image.
+func (p *Gray3LevelImage) Gray3LevelAt(x, y int) Gray3Level {
+	if !(image.Point{X: x, Y: y}).In(p.Rect) {
+		return Gray3Level{}
+	}
+	x -= p.Rect.Min.X
+	y -= p.Rect.Min.Y
+	shift := (3 - x%4) * 2
+	return Gray3Level{Y: min(p.Pix[y*p.Stride+x/4]>>shift&3, 2)}
+}
+
+func (p *Gray3LevelImage) Set(x, y int, c color.Color) {
+	if !(image.Point{X: x, Y: y}).In(p.Rect) {
+		return
+	}
+	x -= p.Rect.Min.X
+	y -= p.Rect.Min.Y
+	index := y*p.Stride + x/4
+	shift := (3 - x%4) * 2
+	value := gray3LevelModel(c).(Gray3Level).Y
+	p.Pix[index] = p.Pix[index]&^(3<<shift) | value<<shift
+}
+
+func (p *Gray3LevelImage) Fill(c color.Color) {
+	value := gray3LevelModel(c).(Gray3Level).Y
+	fillRepeatedByte(p.Pix, value*0x55)
+}
+
 // Gray4Image is a 4-bits per pixel gray scale image.
 type Gray4Image struct {
 	Buffer
@@ -527,6 +585,7 @@ var (
 	_ Image = (*MonoImage)(nil)
 	_ Image = (*MonoVerticalLSBImage)(nil)
 	_ Image = (*Gray2Image)(nil)
+	_ Image = (*Gray3LevelImage)(nil)
 	_ Image = (*Gray4Image)(nil)
 	_ Image = (*CBGR15Image)(nil)
 	_ Image = (*CBGR16Image)(nil)

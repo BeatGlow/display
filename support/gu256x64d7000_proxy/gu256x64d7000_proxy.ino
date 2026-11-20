@@ -8,26 +8,34 @@
 namespace {
 constexpr uint8_t startByte = 0xff;
 constexpr uint8_t readyByte = 0xfe;
-constexpr uint8_t frameOp = 1;
 constexpr uint8_t showOp = 2;
 constexpr uint8_t brightnessOp = 3;
-constexpr uint16_t width = 256;
-constexpr uint8_t groupsPerColumn = 13;
-constexpr uint16_t frameSize = width * groupsPerColumn;
-constexpr uint8_t pwmPhaseMs = 14;
+constexpr uint8_t gray3Op = 4;
+constexpr uint8_t monoOp = 5;
+constexpr uint8_t gray4Op = 6;
+constexpr uint16_t monoSize = 256 * 64 / 8;
+constexpr uint16_t graySize = 256 * 64 / 4;
+constexpr uint8_t gray3PhaseMs[] = {14, 7, 7};
+constexpr uint8_t gray4PhaseMs = 14;
 
-// Keep the two display masks in the VFD's own 512-column RAM.
-uint8_t frame[frameSize];
-uint8_t anyMask[243];
-uint8_t fullMask[243];
+uint8_t frame[graySize];
+// Each lookup turns four packed pixels into four VFD bits. A high-bit
+// mask on each input reuses litPixels for the >= 2 phase.
+uint8_t litPixels[256];
+uint8_t fullPixels[256];
+enum class Bitmap : uint8_t { Mono, Lit, HighBit, Full };
+constexpr Bitmap gray4Bitmaps[] = {Bitmap::Lit, Bitmap::HighBit, Bitmap::Full};
 
 bool useSPI;
 bool vfdReady;
 bool visible = true;
-bool grayscale;
 uint8_t brightness = 8;
 uint8_t visibleBank;
+uint8_t pwmMode = monoOp;
+uint8_t pwmPhase;
 uint32_t phaseStarted;
+bool gray4FrameValid;
+bool gray4NextReady;
 
 bool waitVFD() {
   // Most bytes are accepted quickly. Avoid running millis() on the fast path.
@@ -81,7 +89,10 @@ bool setBrightness(uint8_t level) {
 
 bool initVFD() {
   visibleBank = 0;
-  grayscale = false;
+  pwmMode = monoOp;
+  pwmPhase = 0;
+  gray4FrameValid = false;
+  gray4NextReady = false;
   VPORTA.OUT &= ~PIN0_bm;  // /RESET (D2)
   delay(2);
   VPORTA.OUT |= PIN0_bm;
@@ -98,66 +109,123 @@ bool switchBank() {
     return false;
   }
   visibleBank ^= 1;
-  phaseStarted = millis();
   return true;
 }
 
-void servicePWM() {
-  if (vfdReady && visible && grayscale && millis() - phaseStarted >= pwmPhaseMs) {
-    switchBank();
-  }
-}
-
-bool writeBank(uint8_t bank, const uint8_t *mask) {
+bool writeBank(uint8_t bank, Bitmap bitmap) {
   if (!command<15>({0x1f, 0x24, 0, bank, 0, 0,  // Cursor (bank*256, 0).
                 0x1f, 0x28, 0x66, 0x11, 0, 1, 8, 0, 1})) {
     return false;
   }
-  const uint8_t *column = frame;
-  for (uint16_t x = 0; x < width; ++x, column += groupsPerColumn) {
-    uint16_t bits = 0;
-    uint8_t pending = 0;
-    for (uint8_t group = 0; group < groupsPerColumn; ++group) {
-      bits = (bits << 5) | mask[column[group]];
-      pending += 5;
-      if (pending >= 8) {
-        pending -= 8;
-        if (!writeVFD(uint8_t(bits >> pending))) {
-          return false;
-        }
+  if (bitmap == Bitmap::Mono) {
+    for (uint16_t i = 0; i < monoSize; ++i) {
+      if (!writeVFD(frame[i])) {
+        return false;
+      }
+    }
+  } else {
+    const uint8_t *mask = bitmap == Bitmap::Full ? fullPixels : litPixels;
+    const uint8_t bits = bitmap == Bitmap::HighBit ? 0xaa : 0xff;
+    for (uint16_t i = 0; i < graySize; i += 2) {
+      if (!writeVFD((mask[frame[i] & bits] << 4) | mask[frame[i + 1] & bits])) {
+        return false;
       }
     }
   }
   return waitVFD();
 }
 
-bool showFrame() {
-  bool hasGray = false;
-  for (uint16_t i = 0; i < frameSize; ++i) {
-    const uint8_t packed = frame[i];
-    // Each column ends with four pixels and a zero padding trit.
-    if (packed >= sizeof(anyMask) || (i % groupsPerColumn == groupsPerColumn - 1 && packed >= 81)) {
-      return false;
+uint8_t nextPhase() {
+  return pwmPhase == 2 ? 0 : pwmPhase + 1;
+}
+
+void servicePWM() {
+  if (!vfdReady || !visible || pwmMode == monoOp) {
+    return;
+  }
+
+  const uint8_t next = nextPhase();
+  if (pwmMode == gray4Op) {
+    if (!gray4FrameValid) {
+      return;
     }
-    hasGray |= anyMask[packed] != fullMask[packed];
+    if (!gray4NextReady) {
+      // Reuse the hidden bank for the next of three distinct masks.
+      gray4NextReady = writeBank(visibleBank ^ 1, gray4Bitmaps[next]);
+      if (!gray4NextReady) {
+        return;
+      }
+    }
+  }
+
+  const uint8_t duration = pwmMode == gray3Op ? gray3PhaseMs[pwmPhase] : gray4PhaseMs;
+  if (millis() - phaseStarted < duration) {
+    return;
+  }
+  // Three-level phases 1 and 2 share the full-brightness mask.
+  if (pwmMode == gray3Op && pwmPhase == 1) {
+    pwmPhase = next;
+    phaseStarted += duration;
+    return;
+  }
+  if (switchBank()) {
+    pwmPhase = next;
+    phaseStarted = millis();
+    gray4NextReady = false;
+  }
+}
+
+bool showFrame(uint8_t op) {
+  bool hasGray = false;
+  if (op != monoOp) {
+    for (uint16_t i = 0; i < graySize; ++i) {
+      const uint8_t packed = frame[i];
+      const uint8_t low = packed & 0x55;
+      const uint8_t high = (packed >> 1) & 0x55;
+      if (op == gray3Op && (low & high)) {
+        return false;  // 11 is reserved in three-level mode.
+      }
+      hasGray |= op == gray3Op ? low != 0 : low != high;
+    }
   }
   if (!vfdReady && !initVFD()) {
     return false;
   }
-  grayscale = false;
-  if (!writeBank(visibleBank ^ 1, anyMask) || !switchBank()) {
+
+  const uint8_t mode = hasGray ? op : monoOp;
+  uint8_t phase = 0;
+  if (mode == pwmMode && hasGray) {
+    phase = pwmPhase;
+    if (mode == gray4Op && millis() - phaseStarted >= gray4PhaseMs) {
+      phase = nextPhase();
+    }
+  }
+
+  Bitmap bitmap = Bitmap::Mono;
+  if (op == gray3Op) {
+    bitmap = phase == 0 ? Bitmap::Lit : Bitmap::HighBit;
+  } else if (op == gray4Op) {
+    bitmap = gray4Bitmaps[phase];
+  }
+  if (!writeBank(visibleBank ^ 1, bitmap) || !switchBank()) {
     return false;
   }
-  if (hasGray && !writeBank(visibleBank ^ 1, fullMask)) {
+  if (mode != pwmMode || phase != pwmPhase) {
+    phaseStarted = millis();
+  }
+  if (mode == gray3Op && !writeBank(visibleBank ^ 1, phase == 0 ? Bitmap::HighBit : Bitmap::Lit)) {
     return false;
   }
-  grayscale = hasGray;
+  pwmMode = mode;
+  pwmPhase = phase;
+  gray4FrameValid = mode == gray4Op;
+  gray4NextReady = false;
   return true;
 }
 
 bool execute(uint8_t op, uint8_t value) {
-  if (op == frameOp) {
-    return showFrame();
+  if (op == monoOp || op == gray3Op || op == gray4Op) {
+    return showFrame(op);
   }
   if ((op == showOp && value > 1) || (op == brightnessOp && (value < 1 || value > 8))) {
     return false;
@@ -229,17 +297,35 @@ uint8_t receiveRequest() {
     return 0;
   }
   const uint8_t reject = token | 0x80;
-  if (op != frameOp && op != showOp && op != brightnessOp) {
-    return reject;
+  uint8_t control = 0;
+  uint8_t *payload = &control;
+  uint16_t size = 1;
+  switch (op) {
+    case gray3Op:
+    case gray4Op:
+      size = graySize;
+      break;
+    case monoOp:
+      size = monoSize;
+      break;
+    case showOp:
+    case brightnessOp:
+      break;
+    default:
+      return reject;
   }
-
-  const uint16_t size = op == frameOp ? frameSize : 1;
+  if (size != 1) {
+    // Keep displaying the current bank if an interrupted transfer overwrites
+    // the packed data needed to prepare further four-level phases.
+    gray4FrameValid = false;
+    payload = frame;
+  }
   for (uint16_t i = 0; i < size; ++i) {
     int value = receiveByte(started);
-    if (value < 0 || value >= readyByte) {
+    if (value < 0) {
       return reject;
     }
-    frame[i] = value;
+    payload[i] = value;
   }
   uint16_t received = 0;
   for (uint8_t shift = 0; shift < 16; shift += 7) {
@@ -252,13 +338,13 @@ uint8_t receiveRequest() {
   uint16_t crc = _crc_xmodem_update(0, op);
   crc = _crc_xmodem_update(crc, token);
   for (uint16_t i = 0; i < size; ++i) {
-    crc = _crc_xmodem_update(crc, frame[i]);
+    crc = _crc_xmodem_update(crc, payload[i]);
   }
   if (crc != received) {
     return reject;
   }
   servicePWM();
-  return execute(op, frame[0]) ? token : reject;
+  return execute(op, control) ? token : reject;
 }
 }  // namespace
 
@@ -274,16 +360,15 @@ void setup() {
   pinMode(7, INPUT_PULLUP);
   useSPI = digitalRead(7) == LOW;
 
-  for (uint8_t packed = 0; packed < sizeof(anyMask); ++packed) {
+  for (uint16_t packed = 0; packed < 256; ++packed) {
     uint8_t value = packed;
-    for (uint8_t bit = 0x10; bit; bit >>= 1) {
-      const uint8_t trit = value % 3;
-      value /= 3;
-      if (trit != 0) {
-        anyMask[packed] |= bit;
+    for (uint8_t bit = 8; bit; bit >>= 1, value >>= 2) {
+      const uint8_t level = value & 3;
+      if (level >= 1) {
+        litPixels[packed] |= bit;
       }
-      if (trit == 2) {
-        fullMask[packed] |= bit;
+      if (level == 3) {
+        fullPixels[packed] |= bit;
       }
     }
   }
@@ -309,6 +394,7 @@ void loop() {
     if (!useSPI && status != 0) {
       Serial.write(status);
     }
+    return;
   }
   servicePWM();
 }

@@ -42,7 +42,7 @@ Reproduce with `go test . -run '^$' -bench 'Benchmark(SPITransferChunking|Displa
 
 The package includes drivers for SSD1305, SSD1306, SSD1322, SSD1362, SH1106, SH1122, ST7735, ST7789, GU3000, GU256X64D-7000, GP1247AI, GP1287BI, and GP1294AI. Check the [Go package reference](https://pkg.go.dev/github.com/BeatGlow/display) for the current API and controller details.
 
-The GU256X64D-7000 also supports three-level grayscale through an Arduino Nano Every over SPI or USB. See the [proxy firmware, wiring, and protocol](support/gu256x64d7000_proxy/README.md).
+The GU256X64D-7000 also supports monochrome and three- or four-level grayscale through an Arduino Nano Every over SPI or USB. See the [proxy firmware, wiring, and protocol](support/gu256x64d7000_proxy/README.md).
 
 ## A familiar drawing model
 
