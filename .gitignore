@@ -32,3 +32,4 @@
 !/cmd/display-test-framebuffer/assets/*
 !/internal/
 !/internal/buffer/
+!/support/gu256x64d7000_proxy/gu256x64d7000_proxy.ino
