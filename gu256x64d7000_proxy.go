@@ -36,7 +36,7 @@ const (
 	proxyUSBPoll    = 50 * time.Millisecond
 )
 
-var errProxyRejected = errors.New("Nano Every rejected the request")
+var errProxyRejected = errors.New("request rejected by Nano Every")
 
 // GU256X64D7000ProxyConfig configures the Nano Every display.
 type GU256X64D7000ProxyConfig struct {
