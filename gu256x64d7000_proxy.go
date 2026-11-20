@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"image/color"
 	"io"
+	"math/bits"
 	"sync"
 	"time"
 
@@ -19,21 +19,33 @@ import (
 )
 
 const (
-	proxyFrame      = 1
 	proxyShow       = 2
 	proxyBrightness = 3
+	proxyGray3      = 4
+	proxyMono       = 5
+	proxyGray4      = 6
 	proxyReady      = 0xfe
 	proxyStart      = 0xff
-	proxyColumnSize = (gu256x64d7000Height + 4) / 5
-	proxyFrameSize  = gu256x64d7000Width * proxyColumnSize
+	proxyMonoColumn = gu256x64d7000Height / 8
+	proxyGrayColumn = gu256x64d7000Height / 4
+	proxyMonoSize   = gu256x64d7000Width * proxyMonoColumn
+	proxyGraySize   = gu256x64d7000Width * proxyGrayColumn
+	proxySPIChunk   = 4096 // Default Linux spidev message limit.
 	proxyTimeout    = time.Second
 )
 
 var errProxyRejected = errors.New("Nano Every rejected the request")
 
+// GU256X64D7000ProxyConfig configures the Nano Every display.
+type GU256X64D7000ProxyConfig struct {
+	Config
+	// GrayLevels selects 3 (the default) or 4 levels. UseMono selects 1-bit frames.
+	GrayLevels int
+}
+
 // OpenGU256X64D7000ProxySPI opens the Nano Every proxy on a registered SPI port
 // (for example, "/dev/spidev0.0") at 2 MHz, mode 0, MSB first.
-func OpenGU256X64D7000ProxySPI(portName string, config *Config) (Display, error) {
+func OpenGU256X64D7000ProxySPI(portName string, config *GU256X64D7000ProxyConfig) (Display, error) {
 	if _, err := host.Init(); err != nil {
 		return nil, err
 	}
@@ -51,7 +63,7 @@ func OpenGU256X64D7000ProxySPI(portName string, config *Config) (Display, error)
 
 // OpenGU256X64D7000ProxyUSB opens the Nano Every proxy's USB CDC serial port
 // (for example, "/dev/ttyACM0") at 115200 baud.
-func OpenGU256X64D7000ProxyUSB(portName string, config *Config) (Display, error) {
+func OpenGU256X64D7000ProxyUSB(portName string, config *GU256X64D7000ProxyConfig) (Display, error) {
 	if portName == "" {
 		return nil, errors.New("GU256X64D-7000 proxy requires a USB serial port name")
 	}
@@ -81,8 +93,12 @@ func (s proxySPI) exchange(packet []byte, token byte) error {
 	if err := s.wait(proxyReady); err != nil {
 		return fmt.Errorf("waiting for SPI receiver: %w", err)
 	}
-	if err := s.bus.Tx(packet[1:], nil); err != nil {
-		return err
+	for body := packet[1:]; len(body) != 0; {
+		n := min(len(body), proxySPIChunk)
+		if err := s.bus.Tx(body[:n], nil); err != nil {
+			return err
+		}
+		body = body[n:]
 	}
 	return s.wait(token)
 }
@@ -151,30 +167,44 @@ func proxyReply(reply, expected byte) (bool, error) {
 
 type gu256x64d7000Proxy struct {
 	baseDisplay
-	link   proxyLink
-	port   io.Closer
-	mu     sync.Mutex
-	token  byte
-	closed bool
-	packet [proxyFrameSize + 6]byte
+	link    proxyLink
+	port    io.Closer
+	mu      sync.Mutex
+	token   byte
+	closed  bool
+	frameOp byte
+	packet  [proxyGraySize + 6]byte
 }
 
-func newGU256X64D7000Proxy(link proxyLink, port io.Closer, config *Config) (Display, error) {
+func newGU256X64D7000Proxy(link proxyLink, port io.Closer, config *GU256X64D7000ProxyConfig) (Display, error) {
 	if config == nil {
-		config = &Config{}
+		config = &GU256X64D7000ProxyConfig{}
 	}
 	w, h := gu256x64d7000Width, gu256x64d7000Height
 	if (config.Width != 0 && config.Width != w) || (config.Height != 0 && config.Height != h) {
 		_ = port.Close()
 		return nil, fmt.Errorf("GU256X64D-7000 proxy requires %dx%d: %w", w, h, ErrBounds)
 	}
+	mode := byte(proxyGray3)
+	switch config.GrayLevels {
+	case 0, 3:
+	case 4:
+		mode = proxyGray4
+	default:
+		_ = port.Close()
+		return nil, fmt.Errorf("GU256X64D-7000 proxy supports 3 or 4 grayscale levels, got %d", config.GrayLevels)
+	}
 	d := &gu256x64d7000Proxy{
 		baseDisplay: baseDisplay{width: w, height: h},
 		link:        link,
 		port:        port,
+		frameOp:     mode,
 	}
 	if config.UseMono {
+		d.frameOp = proxyMono
 		d.Image = pixel.NewMonoVerticalLSBImage(w, h)
+	} else if mode == proxyGray3 {
+		d.Image = pixel.NewGray3LevelImage(w, h)
 	} else {
 		d.Image = image.NewGray(image.Rect(0, 0, w, h))
 	}
@@ -227,24 +257,36 @@ func (d *gu256x64d7000Proxy) Refresh() error {
 	if d.closed {
 		return io.ErrClosedPipe
 	}
-	payload := d.packet[3 : 3+proxyFrameSize]
-	for x := range d.width {
-		for group := range proxyColumnSize {
-			var packed, place byte = 0, 1
-			for y := 5 * group; y < min(5*(group+1), d.height); y++ {
-				luma := color.GrayModel.Convert(d.Image.At(x, y)).(color.Gray).Y
-				switch {
-				case luma >= 192:
-					packed += 2 * place
-				case luma >= 64:
-					packed += place
-				}
-				place *= 3
+	if d.frameOp == proxyMono {
+		buffer := d.Image.(*pixel.MonoVerticalLSBImage)
+		for x := range d.width {
+			for band := range proxyMonoColumn {
+				d.packet[3+x*proxyMonoColumn+band] = bits.Reverse8(buffer.Pix[band*buffer.Stride+x])
 			}
-			payload[x*proxyColumnSize+group] = packed
+		}
+		return d.send(proxyMono, proxyMonoSize)
+	}
+
+	gray3, _ := d.Image.(*pixel.Gray3LevelImage)
+	gray4, _ := d.Image.(*image.Gray)
+	payload := d.packet[3 : 3+proxyGraySize]
+	for x := range d.width {
+		for group := range proxyGrayColumn {
+			var packed byte
+			for dy := range 4 {
+				y := 4*group + dy
+				var level byte
+				if gray3 != nil {
+					level = gray3.Gray3LevelAt(x, y).Y
+				} else {
+					level = gray4.GrayAt(x, y).Y >> 6
+				}
+				packed |= level << (2 * dy)
+			}
+			payload[x*proxyGrayColumn+group] = packed
 		}
 	}
-	return d.send(proxyFrame, proxyFrameSize)
+	return d.send(d.frameOp, proxyGraySize)
 }
 
 func (d *gu256x64d7000Proxy) control(op, value byte) error {

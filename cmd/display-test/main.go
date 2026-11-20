@@ -20,6 +20,7 @@ import (
 )
 
 func main() {
+	proxyGrayFlag := flag.Int("proxy-gray-levels", 3, "Nano Every proxy grayscale levels (3 or 4)")
 	widthFlag := flag.Int("width", 0, "Display width")
 	heightFlag := flag.Int("height", 0, "Display height")
 	useMonoFlag := flag.Bool("mono", false, "Display uses monochrome colors")
@@ -110,11 +111,15 @@ func main() {
 		if !strings.EqualFold(flag.Arg(1), "gu256x64d7000") {
 			fatal(fmt.Errorf("the Nano Every proxy is only available for gu256x64d7000"))
 		}
+		proxyConfig := &display.GU256X64D7000ProxyConfig{
+			Config:     *config,
+			GrayLevels: *proxyGrayFlag,
+		}
 		if busType == "proxy-spi" {
 			name := fmt.Sprintf("/dev/spidev%d.%d", *spiBusFlag, *spiDeviceFlag)
-			output, err = display.OpenGU256X64D7000ProxySPI(name, config)
+			output, err = display.OpenGU256X64D7000ProxySPI(name, proxyConfig)
 		} else {
-			output, err = display.OpenGU256X64D7000ProxyUSB(*uartPortFlag, config)
+			output, err = display.OpenGU256X64D7000ProxyUSB(*uartPortFlag, proxyConfig)
 		}
 	case "uart":
 		conn, err = display.OpenUART(&display.UARTConfig{
@@ -234,6 +239,9 @@ func main() {
 	case color.GrayModel:
 		bits = 8
 		fmt.Println("using color model: 8-bit grayscale framebuffer")
+	case pixel.Gray3LevelModel:
+		bits = 2
+		fmt.Println("using color model: three-level grayscale")
 	case pixel.Gray2Model:
 		bits = 2
 		fmt.Println("using color model: 2-bit gray")

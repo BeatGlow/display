@@ -1,10 +1,21 @@
 # GU256X64D-7000 Nano Every proxy
 
-The Go driver sends a three-level framebuffer over 2 MHz SPI or USB CDC. The
-Nano Every writes the VFD through its 8-bit parallel interface and generates PWM
-by switching the VFD's visible image bank. Every pixel is off, on during one
-phase, or on during both phases. A frame containing only black and white needs
-one bank write and no periodic switching.
+The Go driver sends monochrome, three-level, or four-level frames over 2 MHz
+SPI or USB CDC. The Nano Every writes the VFD through its 8-bit parallel
+interface. For grayscale it switches the visible VFD memory bank at each
+phase that needs a different mask.
+
+| Mode | Pixel codes | Nominal duty cycles | PWM phase lengths |
+| --- | --- | --- | --- |
+| Monochrome | `0`, `1` | 0%, 100% | Static |
+| Three-level (1.5-bit gray) | `00`, `01`, `10` | 0%, 50%, 100% | 14 ms, 7 ms, 7 ms |
+| Four-level (2-bit gray) | `00`, `01`, `10`, `11` | 0%, 33⅓%, 66⅔%, 100% | 14 ms each |
+
+In three-level mode, gray lights during the first phase, and the last two
+phases share the white-only mask. Four-level mode generates three distinct
+masks from one packed framebuffer and loads each upcoming mask into the
+hidden bank. White stays lit in every phase in either mode. A frame
+containing only black and white needs one bank write and no PWM.
 
 ## Wiring
 
@@ -43,13 +54,19 @@ arduino-cli compile --fqbn arduino:megaavr:nona4809:mode=off support/gu256x64d70
 arduino-cli upload --fqbn arduino:megaavr:nona4809:mode=off -p /dev/ttyACM0 support/gu256x64d7000_proxy
 ```
 
-The Go constructors are `display.OpenGU256X64D7000ProxySPI("/dev/spidev0.0", nil)`
-and `display.OpenGU256X64D7000ProxyUSB("/dev/ttyACM0", nil)`. The returned
-`display.Display` owns its connection. It supports software rotation,
-`Config.UseMono`, `Show`, and `SetContrast`.
+Use `display.OpenGU256X64D7000ProxySPI("/dev/spidev0.0", nil)` or
+`display.OpenGU256X64D7000ProxyUSB("/dev/ttyACM0", nil)` for the default
+three-level mode. Pass `&display.GU256X64D7000ProxyConfig{GrayLevels: 4}`
+for four levels or
+`&display.GU256X64D7000ProxyConfig{Config: display.Config{UseMono: true}}`
+for 1-bit frames. The three-level framebuffer uses
+`pixel.Gray3LevelImage`. The returned `display.Display` owns its connection
+and supports software rotation, `Show`, and `SetContrast`.
 
 ```sh
 go run ./cmd/display-test -contrast 224 proxy-spi gu256x64d7000
+go run ./cmd/display-test -mono proxy-spi gu256x64d7000
+go run ./cmd/display-test -proxy-gray-levels 4 proxy-spi gu256x64d7000
 go run ./cmd/display-test -uart-port /dev/ttyACM0 proxy-usb gu256x64d7000
 ```
 
@@ -63,38 +80,42 @@ opcode, token, and payload, with initial value zero. Transmit CRC bits 0–6,
 
 | Opcode | Payload | VFD action |
 | --- | --- | --- |
-| 1 | 3,328 bytes | Publish a 256×64 frame |
 | 2 | 0 or 1 | Display power, `US ( a 40h` |
 | 3 | Level 1–8 | Global brightness, `US X` |
+| 4 | 4,096 bytes | Publish a three-level frame |
+| 5 | 2,048 bytes | Publish a monochrome frame |
+| 6 | 4,096 bytes | Publish a four-level frame |
 
-Frame data is column-major. Each column has 13 bytes. A byte encodes five
-vertical pixels, with the top pixel as the least significant base-3 digit and
-values 0, 1, 2 for off, half duty, and full duty. The last byte in each column
-contains four pixels and a zero padding digit. This uses 1.625 wire bits per
-pixel, including the per-column padding and excluding the packet header and CRC.
+Every frame is 256×64, stored column by column. A monochrome byte contains
+eight vertical pixels, with the top pixel in bit 7. A grayscale byte contains
+four vertical pixels, with the top pixel in bits 1–0. The firmware rejects
+code `11` in a three-level frame. Wire storage uses two bits per grayscale
+pixel in both modes.
 
 On SPI, send the start marker in its own transaction, then poll with four
 zero bytes per transaction until the fourth received byte is `fe`. Send the
-rest of the request in a single transaction and poll with four zero bytes per
-transaction until the fourth received byte matches the token (success) or
-token OR `80` (rejected). USB sends the request in one stream and receives
-the same one-byte success or rejection reply. Send the next request after
-the current reply. A new start marker can synchronize the next request after
-an incomplete request times out.
+rest of the request in transactions of at most 4,096 bytes, without sending
+another start marker or polling between chunks. Then poll with four zero
+bytes until the fourth received byte matches the token (success) or token OR
+`80` (rejected). USB sends the request in one stream and receives the same
+one-byte reply. Send the next request after the current reply. A new start
+marker can synchronize the next request after an incomplete request times out.
+If an invalid frame overwrites the Nano’s packed four-level buffer, the
+current bank stays visible until the next valid frame restores PWM.
 
 ## Timing and bench checks
 
-At 2 MHz, the grayscale request consumes about 13.4 ms of SPI wire time.
-A grayscale frame needs 4,096 VFD data writes plus commands, and timing depends
-on the module's PBUSY latency. For near 20 fps, measure successive frame
-acknowledgments with the SPI demo and check for about 20 completed updates per
-second.
-USB's 115200-baud bridge limits full frames to about 3.5 fps before VFD writes.
+At 2 MHz, the monochrome request takes about 8.2 ms on the wire and either
+grayscale request takes about 16.4 ms. Monochrome needs one 2,048-byte VFD
+bitmap write. Three-level gray needs two bitmap writes per update. Four-level
+gray needs a bitmap write for each distinct phase, including between host
+updates. PBUSY latency on the panel determines the achievable rate. Near 20 fps
+is the SPI target. At 115200 baud, the USB bridge limits transfer-only
+throughput to about 5.6 monochrome fps or 2.8 grayscale fps.
 
-With a logic analyzer on /WR, PBUSY, SCK and CS, verify that the Nano waits for
-PBUSY to clear and that both SPI and VFD transactions complete within the frame
-budget. Display black, mid-gray, and white patches. Check that mid-gray pulses
-while white stays on. For a stationary frame the nominal PWM period is 28 ms
-before VFD command and scan latency. A SPI burst or bank upload can lengthen
-a phase during animation. Actual panel flicker, duty cycle and frame rate
-need a hardware measurement.
+Measure frame acknowledgments with the SPI demo and check for about 20 completed
+updates per second. With a logic analyzer on /WR, PBUSY, SCK, and CS, confirm
+that the Nano waits for PBUSY and that each transaction completes within the
+frame budget. Verify the duty cycles on solid patches in each grayscale mode.
+During animation, SPI bursts and bank uploads can lengthen a phase. The visible
+PWM, flicker, and achieved frame rate require a bench measurement.

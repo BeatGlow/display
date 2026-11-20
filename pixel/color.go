@@ -8,6 +8,8 @@ var (
 	MonoModel color.Model = color.ModelFunc(monoModel)
 	// Gray2Model converts colors to [Gray2].
 	Gray2Model color.Model = color.ModelFunc(gray2Model)
+	// Gray3LevelModel converts colors to [Gray3Level].
+	Gray3LevelModel color.Model = color.ModelFunc(gray3LevelModel)
 	// Gray4Model converts colors to [Gray4].
 	Gray4Model color.Model = color.ModelFunc(gray4Model)
 	// CBGR15Model converts colors to [CBGR15].
@@ -81,6 +83,32 @@ func gray2Model(c color.Color) color.Color {
 	y := (299*r + 587*g + 114*b + 500) / 1000
 	y >>= 6
 	return Gray2{Y: uint8(y & 0x3)}
+}
+
+// Gray3Level represents a three-level grayscale color with 0%, 50%, or 100% luminance.
+type Gray3Level struct {
+	// Y is 0 for black, 1 for gray, or 2 for white. Higher values render as white.
+	Y uint8
+}
+
+func (c Gray3Level) RGBA() (r, g, b, a uint32) {
+	y := min(uint32(c.Y)*0x8000, 0xffff)
+	return y, y, y, 0xffff
+}
+
+func gray3LevelModel(c color.Color) color.Color {
+	if c, ok := c.(Gray3Level); ok {
+		return Gray3Level{Y: min(c.Y, 2)}
+	}
+	y := color.GrayModel.Convert(c).(color.Gray).Y
+	switch {
+	case y >= 192:
+		return Gray3Level{Y: 2}
+	case y >= 64:
+		return Gray3Level{Y: 1}
+	default:
+		return Gray3Level{}
+	}
 }
 
 // Gray4 represents a 4-bit grayscale color.

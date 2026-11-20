@@ -8,18 +8,26 @@ import (
 	"image/color"
 	"io"
 	"testing"
+
+	"github.com/BeatGlow/display/pixel"
 )
 
 func TestGU256X64D7000ProxySendsRotatedGrayscaleAndControls(t *testing.T) {
 	port := &testProxyUSB{}
-	d, err := newGU256X64D7000Proxy(proxyUSB{port}, port, &Config{Rotation: Rotate90})
+	d, err := newGU256X64D7000Proxy(proxyUSB{port}, port, &GU256X64D7000ProxyConfig{Config: Config{Rotation: Rotate90}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got, want := d.Bounds(), image.Rect(0, 0, 64, 256); got != want {
 		t.Fatalf("rotated bounds = %v, want %v", got, want)
 	}
+	if d.ColorModel() != pixel.Gray3LevelModel {
+		t.Fatal("three-level display does not expose the three-level pixel model")
+	}
 	d.Set(63, 0, color.Gray{Y: 64})
+	if got := d.At(63, 0); got != (pixel.Gray3Level{Y: 1}) {
+		t.Fatalf("pixel = %v, want half brightness", got)
+	}
 	d.Set(62, 0, color.Gray{Y: 192})
 	d.Set(0, 0, color.White)
 	d.Set(0, 255, color.White)
@@ -37,10 +45,10 @@ func TestGU256X64D7000ProxySendsRotatedGrayscaleAndControls(t *testing.T) {
 		t.Fatalf("sent %d USB requests, want 5", len(port.packets))
 	}
 	// The golden packet includes the first and last columns and CRC-16/XMODEM.
-	frame := make([]byte, 3334)
-	copy(frame, []byte{0xff, 1, 3, 7})
-	frame[3+12], frame[3+3327] = 54, 54
-	copy(frame[3331:], []byte{35, 63, 1})
+	frame := make([]byte, 4102)
+	copy(frame, []byte{0xff, 4, 3, 9})
+	frame[3+15], frame[3+4095] = 128, 128
+	copy(frame[4099:], []byte{20, 66, 2})
 	for _, tc := range []struct {
 		name string
 		got  []byte
@@ -65,6 +73,51 @@ func TestGU256X64D7000ProxySendsRotatedGrayscaleAndControls(t *testing.T) {
 	}
 	if err := d.Refresh(); !errors.Is(err, io.ErrClosedPipe) {
 		t.Errorf("Refresh after Close = %v, want io.ErrClosedPipe", err)
+	}
+}
+
+func TestGU256X64D7000ProxySendsDistinctMonochromeAndFourLevelFrames(t *testing.T) {
+	for _, tc := range []struct {
+		name                    string
+		config                  GU256X64D7000ProxyConfig
+		size                    int
+		op, first, second, last byte
+		crc                     [3]byte
+	}{
+		{"monochrome", GU256X64D7000ProxyConfig{Config: Config{UseMono: true}}, 2048, 5, 255, 0, 1, [3]byte{27, 18, 1}},
+		{"four levels", GU256X64D7000ProxyConfig{GrayLevels: 4}, 4096, 6, 228, 255, 0, [3]byte{116, 120, 3}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			port := &testProxyUSB{}
+			d, err := newGU256X64D7000Proxy(proxyUSB{port}, port, &tc.config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.config.UseMono {
+				for y := range 8 {
+					d.Set(0, y, color.White)
+				}
+				d.Set(255, 63, color.White)
+			} else {
+				for y, luma := range []uint8{0, 64, 128, 192, 255, 255, 255, 255} {
+					d.Set(0, y, color.Gray{Y: luma})
+				}
+			}
+			if err := d.Refresh(); err != nil {
+				t.Fatal(err)
+			}
+			want := make([]byte, tc.size+6)
+			copy(want, []byte{0xff, tc.op, 3, tc.first, tc.second})
+			want[3+tc.size-1] = tc.last
+			copy(want[3+tc.size:], tc.crc[:])
+			got := port.packets[2]
+			if !bytes.Equal(got, want) {
+				t.Errorf("sent %d bytes with header and first pixels %x, want %d bytes starting %x", len(got), got[:min(5, len(got))], len(want), want[:5])
+			}
+			if err := d.Close(); err != nil {
+				t.Error(err)
+			}
+		})
 	}
 }
 
@@ -124,6 +177,7 @@ type testProxySPI struct {
 	reserved   bool
 	ready      bool
 	reply      byte
+	remaining  int
 	rejectNext bool
 	dropNext   bool
 }
@@ -143,8 +197,27 @@ func (b *testProxySPI) Tx(w, r []byte) error {
 	case bytes.Equal(w, []byte{0xff}):
 		b.reserved, b.ready = true, false
 	case b.ready:
+		if b.remaining == 0 {
+			switch w[0] {
+			case 2, 3:
+				b.remaining = 6
+			case 4, 6:
+				b.remaining = 4101
+			case 5:
+				b.remaining = 2053
+			default:
+				return fmt.Errorf("unknown frame opcode %d", w[0])
+			}
+			b.reply = w[1]
+		}
+		if len(w) != min(4096, b.remaining) {
+			return fmt.Errorf("SPI chunk length %d with %d bytes left in request", len(w), b.remaining)
+		}
+		b.remaining -= len(w)
+		if b.remaining != 0 {
+			return nil
+		}
 		b.reserved, b.ready = false, false
-		b.reply = w[1]
 		if b.rejectNext {
 			b.reply |= 0x80
 			b.rejectNext = false
