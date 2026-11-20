@@ -72,8 +72,8 @@ go run ./cmd/display-test -uart-port /dev/ttyACM0 proxy-usb gu256x64d7000
 
 ## Protocol
 
-SPI is mode 0, MSB first, at 2 MHz. USB CDC uses the Arduino bridge at 115200
-baud, 8N1. Each request starts with `ff`, followed by an opcode, a token
+SPI is mode 0, MSB first, at 2 MHz. USB CDC uses the stock Nano Every
+bridge at 1,000,000 baud, 8N1. Each request starts with `ff`, followed by an opcode, a token
 (1–125), the payload, and a three-byte CRC. The CRC is CRC-16/XMODEM over the
 opcode, token, and payload, with initial value zero. Transmit CRC bits 0–6,
 7–13, and 14–15 in that order.
@@ -97,9 +97,12 @@ zero bytes per transaction until the fourth received byte is `fe`. Send the
 rest of the request in transactions of at most 4,096 bytes, without sending
 another start marker or polling between chunks. Then poll with four zero
 bytes until the fourth received byte matches the token (success) or token OR
-`80` (rejected). USB sends the request in one stream and receives the same
-one-byte reply. Send the next request after the current reply. A new start
-marker can synchronize the next request after an incomplete request times out.
+`80` (rejected). On USB, send the start marker and wait for a single `fe`
+ready byte before sending the rest of the request. The Nano then sends the
+same one-byte success or rejection reply. If opening CDC resets the Nano,
+retry the start marker until the ready byte arrives. Send the next request
+after the current reply. A new start marker can synchronize the next request
+after an incomplete request times out.
 If an invalid frame overwrites the Nano’s packed four-level buffer, the
 current bank stays visible until the next valid frame restores PWM.
 
@@ -110,8 +113,11 @@ grayscale request takes about 16.4 ms. Monochrome needs one 2,048-byte VFD
 bitmap write. Three-level gray needs two bitmap writes per update. Four-level
 gray needs a bitmap write for each distinct phase, including between host
 updates. PBUSY latency on the panel determines the achievable rate. Near 20 fps
-is the SPI target. At 115200 baud, the USB bridge limits transfer-only
-throughput to about 5.6 monochrome fps or 2.8 grayscale fps.
+is the SPI target. At 1 Mbaud, a monochrome USB request takes about 20.5 ms
+and a grayscale request takes about 41 ms on the UART, before USB buffering,
+the ready handshake, and the VFD writes. Arduino documents 1 Mbit/s for the
+stock Nano Every bridge.
+[Arduino Nano Every serial ports](https://docs.arduino.cc/tutorials/nano-every/getting-started/#serial-ports-on-the-arduino-nano-every)
 
 Measure frame acknowledgments with the SPI demo and check for about 20 completed
 updates per second. With a logic analyzer on /WR, PBUSY, SCK, and CS, confirm

@@ -8,6 +8,7 @@
 namespace {
 constexpr uint8_t startByte = 0xff;
 constexpr uint8_t readyByte = 0xfe;
+constexpr uint32_t usbBaud = 1000000;
 constexpr uint8_t showOp = 2;
 constexpr uint8_t brightnessOp = 3;
 constexpr uint8_t gray3Op = 4;
@@ -268,18 +269,21 @@ int receiveByte(uint32_t started) {
     }
     return SPI0.DATA;
   }
-  while (millis() - started < 850) {
-    int value = Serial.read();
+  // The USB host waits for readiness, then sends a continuous burst.
+  // Drain the UART before running another potentially blocking VFD write.
+  while (true) {
+    const int value = Serial.read();
     if (value >= 0) {
       return value;
     }
-    servicePWM();
+    if (millis() - started >= 250) {
+      return -1;
+    }
   }
-  return -1;
 }
 
 uint8_t receiveRequest() {
-  const uint32_t started = millis();
+  uint32_t started = millis();
   int op;
   if (useSPI) {
     uint8_t spin = 0;
@@ -290,7 +294,11 @@ uint8_t receiveRequest() {
       }
     } while (op <= 0 || op == startByte);  // Ignore readiness polling and a new start.
   } else {
-    op = receiveByte(started);
+    do {
+      started = millis();
+      Serial.write(readyByte);
+      op = receiveByte(started);
+    } while (op == startByte);  // A retried marker may arrive while waiting for the opcode.
   }
   const int token = receiveByte(started);
   if (token < 1 || token > 125) {
@@ -382,7 +390,7 @@ void setup() {
     SPI0.CTRLB = SPI_BUFEN_bm | SPI_BUFWR_bm | SPI_MODE_0_gc;
     SPI0.CTRLA = SPI_ENABLE_bm;  // Client, MSB first.
   } else {
-    Serial.begin(115200);
+    Serial.begin(usbBaud);
   }
 }
 
