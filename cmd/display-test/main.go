@@ -38,7 +38,7 @@ func main() {
 	colorFlag := flag.String("color", "mono", "Offline virtual display color model: mono, gray2, gray4, rgb15, rgb16, yu12")
 	outputFlag := flag.String("output", "display.png", "Offline preview PNG path")
 	traceFlag := flag.String("trace", "display.trace.json", "Offline command/data trace path")
-	contrastFlag := flag.Int("contrast", -1, "Set driver contrast/brightness for offline checks (0-255)")
+	contrastFlag := flag.Int("contrast", -1, "Set contrast/brightness for offline checks or the Nano Every proxy (0-255)")
 	flag.Parse()
 
 	if flag.NArg() != 2 {
@@ -106,6 +106,16 @@ func main() {
 			DC:     gpioreg.ByName(*dcPinFlag),
 			CE:     gpioreg.ByName(*cePinFlag),
 		})
+	case "proxy-spi", "proxy-usb":
+		if !strings.EqualFold(flag.Arg(1), "gu256x64d7000") {
+			fatal(fmt.Errorf("the Nano Every proxy is only available for gu256x64d7000"))
+		}
+		if busType == "proxy-spi" {
+			name := fmt.Sprintf("/dev/spidev%d.%d", *spiBusFlag, *spiDeviceFlag)
+			output, err = display.OpenGU256X64D7000ProxySPI(name, config)
+		} else {
+			output, err = display.OpenGU256X64D7000ProxyUSB(*uartPortFlag, config)
+		}
 	case "uart":
 		conn, err = display.OpenUART(&display.UARTConfig{
 			Port: *uartPortFlag,
@@ -118,12 +128,20 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	defer func() {
-		if err := conn.Close(); err != nil {
-			fatal(fmt.Errorf("failed to close display connection: %w", err))
-		}
-	}()
-	fmt.Printf("using connection: %s\n", conn)
+	if conn != nil {
+		defer func() {
+			if err := conn.Close(); err != nil {
+				fatal(fmt.Errorf("failed to close display connection: %w", err))
+			}
+		}()
+		fmt.Printf("using connection: %s\n", conn)
+	} else {
+		defer func() {
+			if err := output.Close(); err != nil {
+				fatal(fmt.Errorf("failed to close Nano Every proxy: %w", err))
+			}
+		}()
+	}
 
 	switch driver := strings.ToLower(flag.Arg(1)); driver {
 	case "gp1247ai":
@@ -147,7 +165,9 @@ func main() {
 	case "gu3000":
 		output, err = display.GU3000(conn, config)
 	case "gu256x64d7000":
-		output, err = display.GU256X64D7000(conn, config)
+		if output == nil {
+			output, err = display.GU256X64D7000(conn, config)
+		}
 	case "virtual":
 		if !offline {
 			err = fmt.Errorf("the virtual driver is only available with the offline bus")
@@ -175,7 +195,7 @@ func main() {
 	if recorder, ok := conn.(*recordingConn); ok {
 		contrastEventsStart = len(recorder.events)
 	}
-	if offline && *contrastFlag >= 0 {
+	if (offline || conn == nil) && *contrastFlag >= 0 {
 		if err = output.SetContrast(uint8(*contrastFlag)); err != nil {
 			fatal(err)
 		}
@@ -211,6 +231,9 @@ func main() {
 	case pixel.MonoModel:
 		bits = 1
 		fmt.Println("using color model: monochrome")
+	case color.GrayModel:
+		bits = 8
+		fmt.Println("using color model: 8-bit grayscale framebuffer")
 	case pixel.Gray2Model:
 		bits = 2
 		fmt.Println("using color model: 2-bit gray")
