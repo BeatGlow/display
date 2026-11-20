@@ -32,6 +32,8 @@ const (
 	proxyGraySize   = gu256x64d7000Width * proxyGrayColumn
 	proxySPIChunk   = 4096 // Default Linux spidev message limit.
 	proxyTimeout    = time.Second
+	proxyUSBRate    = 1_000_000
+	proxyUSBPoll    = 50 * time.Millisecond
 )
 
 var errProxyRejected = errors.New("Nano Every rejected the request")
@@ -62,16 +64,16 @@ func OpenGU256X64D7000ProxySPI(portName string, config *GU256X64D7000ProxyConfig
 }
 
 // OpenGU256X64D7000ProxyUSB opens the Nano Every proxy's USB CDC serial port
-// (for example, "/dev/ttyACM0") at 115200 baud.
+// (for example, "/dev/ttyACM0") at 1 Mbaud.
 func OpenGU256X64D7000ProxyUSB(portName string, config *GU256X64D7000ProxyConfig) (Display, error) {
 	if portName == "" {
 		return nil, errors.New("GU256X64D-7000 proxy requires a USB serial port name")
 	}
-	port, err := serial.Open(portName, &serial.Mode{BaudRate: 115200})
+	port, err := serial.Open(portName, &serial.Mode{BaudRate: proxyUSBRate})
 	if err != nil {
 		return nil, err
 	}
-	if err = port.SetReadTimeout(proxyTimeout); err != nil {
+	if err = port.SetReadTimeout(proxyUSBPoll); err != nil {
 		_ = port.Close()
 		return nil, err
 	}
@@ -130,24 +132,48 @@ func (s proxyUSB) exchange(packet []byte, token byte) error {
 	if err := s.port.ResetInputBuffer(); err != nil {
 		return err
 	}
-	n, err := s.port.Write(packet)
+	if err := s.wait(proxyReady, packet[:1]); err != nil {
+		return fmt.Errorf("waiting for USB receiver: %w", err)
+	}
+	if err := s.write(packet[1:]); err != nil {
+		return err
+	}
+	return s.wait(token, nil)
+}
+
+func (s proxyUSB) write(data []byte) error {
+	n, err := s.port.Write(data)
 	if err != nil {
 		return err
 	}
-	if n != len(packet) {
+	if n != len(data) {
 		return io.ErrShortWrite
 	}
+	return nil
+}
+
+func (s proxyUSB) wait(expected byte, marker []byte) error {
+	// MuxTO can reset the AVR when CDC opens. Retry the marker after a read
+	// timeout while waiting for readiness. Never resend a request body.
+	sendMarker := len(marker) != 0
 	deadline := time.Now().Add(proxyTimeout)
 	var reply [1]byte
 	for time.Now().Before(deadline) {
+		if sendMarker {
+			if err := s.write(marker); err != nil {
+				return err
+			}
+			sendMarker = false
+		}
 		n, err := s.port.Read(reply[:])
 		if err != nil {
 			return err
 		}
 		if n == 0 {
-			break
+			sendMarker = len(marker) != 0
+			continue
 		}
-		if done, err := proxyReply(reply[0], token); done {
+		if done, err := proxyReply(reply[0], expected); done {
 			return err
 		}
 	}

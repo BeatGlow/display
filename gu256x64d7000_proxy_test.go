@@ -13,7 +13,7 @@ import (
 )
 
 func TestGU256X64D7000ProxySendsRotatedGrayscaleAndControls(t *testing.T) {
-	port := &testProxyUSB{}
+	port := &testProxyUSB{missStart: true}
 	d, err := newGU256X64D7000Proxy(proxyUSB{port}, port, &GU256X64D7000ProxyConfig{Config: Config{Rotation: Rotate90}})
 	if err != nil {
 		t.Fatal(err)
@@ -122,9 +122,12 @@ func TestGU256X64D7000ProxySendsDistinctMonochromeAndFourLevelFrames(t *testing.
 }
 
 type testProxyUSB struct {
-	packets [][]byte
-	reply   []byte
-	closed  bool
+	packets      [][]byte
+	reply        []byte
+	closed       bool
+	missStart    bool
+	awaitingBody bool
+	processing   bool
 }
 
 func (p *testProxyUSB) ResetInputBuffer() error {
@@ -132,15 +135,37 @@ func (p *testProxyUSB) ResetInputBuffer() error {
 	return nil
 }
 
-func (p *testProxyUSB) Write(packet []byte) (int, error) {
-	p.packets = append(p.packets, bytes.Clone(packet))
-	p.reply = []byte{0, packet[2]}
-	return len(packet), nil
+func (p *testProxyUSB) Write(data []byte) (int, error) {
+	if bytes.Equal(data, []byte{0xff}) {
+		// Opening CDC can reset the AVR, which loses the first marker.
+		if p.missStart {
+			p.missStart = false
+		} else {
+			p.reply = []byte{0xfe}
+		}
+		return len(data), nil
+	}
+	if !p.awaitingBody || len(data) < 2 {
+		return 0, errors.New("USB request body arrived before the Nano was ready")
+	}
+	p.awaitingBody = false
+	p.packets = append(p.packets, append([]byte{0xff}, data...))
+	p.reply = []byte{0, data[1]}
+	p.processing = true
+	return len(data), nil
 }
 
 func (p *testProxyUSB) Read(reply []byte) (int, error) {
+	if p.processing {
+		// A VFD write may take longer than one USB read timeout.
+		p.processing = false
+		return 0, nil
+	}
 	n := copy(reply, p.reply)
 	p.reply = p.reply[n:]
+	if n != 0 && reply[0] == 0xfe {
+		p.awaitingBody = true
+	}
 	return n, nil
 }
 
