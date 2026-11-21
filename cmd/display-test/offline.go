@@ -415,6 +415,8 @@ func newVirtualDisplay(width, height int, modelName string) (display.Display, er
 		img, model = pixel.NewMonoImage(width, height), pixel.MonoModel
 	case "gray2":
 		img, model = pixel.NewGray2Image(width, height), pixel.Gray2Model
+	case "gray3level":
+		img, model = pixel.NewGray3LevelImage(width, height), pixel.Gray3LevelModel
 	case "gray4":
 		img, model = pixel.NewGray4Image(width, height), pixel.Gray4Model
 	case "rgb15":
@@ -424,7 +426,7 @@ func newVirtualDisplay(width, height int, modelName string) (display.Display, er
 	case "yu12":
 		img, model = pixel.NewYU12Image(width, height), color.YCbCrModel
 	default:
-		return nil, fmt.Errorf("unsupported offline color model %q (choose mono, gray2, gray4, rgb15, rgb16, or yu12)", modelName)
+		return nil, fmt.Errorf("unsupported offline color model %q (choose mono, gray2, gray3level, gray4, rgb15, rgb16, or yu12)", modelName)
 	}
 	return &virtualDisplay{Image: img, model: model}, nil
 }
