@@ -91,18 +91,7 @@ func TestGU256X64D7000ProxySendsNativeFrameFormatsOnSPIAndUSB(t *testing.T) {
 	} {
 		for _, transport := range []string{"SPI", "USB"} {
 			t.Run(tc.name+"/"+transport, func(t *testing.T) {
-				var (
-					link    proxyLink
-					port    io.Closer
-					packets *[][]byte
-				)
-				if transport == "SPI" {
-					bus := &testProxySPI{}
-					link, port, packets = proxySPI{bus}, bus, &bus.packets
-				} else {
-					usb := &testProxyUSB{}
-					link, port, packets = proxyUSB{usb}, usb, &usb.packets
-				}
+				link, port, packets := testProxyTransport(transport)
 				d, err := newGU256X64D7000Proxy(link, port, &tc.config)
 				if err != nil {
 					t.Fatal(err)
@@ -151,6 +140,98 @@ func TestGU256X64D7000ProxySendsNativeFrameFormatsOnSPIAndUSB(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestGU256X64D7000ProxySendsPositionedTextAndRectanglesOnSPIAndUSB(t *testing.T) {
+	for _, transport := range []string{"SPI", "USB"} {
+		t.Run(transport, func(t *testing.T) {
+			link, port, packets := testProxyTransport(transport)
+			d, err := newGU256X64D7000Proxy(link, port, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := d.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+			drawer := d.(GU256X64D7000ProxyDisplay)
+			src := image.NewGray(image.Rect(10, 20, 12, 36))
+			for _, pt := range []image.Point{{X: 10, Y: 20}, {X: 10, Y: 35}, {X: 11, Y: 27}, {X: 11, Y: 28}} {
+				src.SetGray(pt.X, pt.Y, color.Gray{Y: 255})
+			}
+			if err := drawer.DrawBitmap(image.Pt(254, 48), src); err != nil {
+				t.Fatal(err)
+			}
+			if err := drawer.DrawTextAt(image.Pt(242, 56), "A~"); err != nil {
+				t.Fatal(err)
+			}
+			if err := drawer.DrawBitmap(image.Point{}, image.NewGray(image.Rect(0, 0, 256, 64))); err != nil {
+				t.Fatal(err)
+			}
+			full := make([]byte, 2061)
+			copy(full, []byte{0xff, 0x21, 5, 5, 8, 0, 0, 0, 1, 8})
+			copy(full[len(full)-3:], []byte{104, 15, 0})
+			want := [][]byte{
+				{0xff, 0x21, 3, 9, 0, 254, 6, 2, 0, 2, 0x80, 0x01, 0x01, 0x80, 87, 56, 2},
+				{0xff, 0x34, 4, 4, 0, 242, 7, 'A', '~', 71, 49, 3},
+				full,
+			}
+			if got := len(*packets); got != 2+len(want) {
+				t.Fatalf("sent %d packets including setup, want %d", got, 2+len(want))
+			}
+			for i, packet := range want {
+				if got := (*packets)[i+2]; !bytes.Equal(got, packet) {
+					t.Errorf("drawing request %d differs from the expected wire packet (got %d bytes, want %d)", i, len(got), len(packet))
+				}
+			}
+		})
+	}
+}
+
+func TestGU256X64D7000ProxyRejectsInvalidDrawingsBeforeTransmission(t *testing.T) {
+	port := &testProxyUSB{}
+	d, err := newGU256X64D7000Proxy(proxyUSB{port}, port, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	drawer := d.(GU256X64D7000ProxyDisplay)
+	bitmap := image.NewGray(image.Rect(0, 0, 2, 8))
+	for _, tc := range []struct {
+		name   string
+		draw   func() error
+		bounds bool
+	}{
+		{"bitmap past the right edge", func() error { return drawer.DrawBitmap(image.Pt(255, 0), bitmap) }, true},
+		{"bitmap between VFD rows", func() error { return drawer.DrawBitmap(image.Pt(0, 1), bitmap) }, true},
+		{"bitmap with partial VFD row", func() error { return drawer.DrawBitmap(image.Point{}, image.NewGray(image.Rect(0, 0, 2, 7))) }, true},
+		{"text wraps past the right edge", func() error { return drawer.DrawTextAt(image.Pt(250, 0), "A") }, true},
+		{"text contains a VFD control byte", func() error { return drawer.DrawTextAt(image.Point{}, "A\x1f") }, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.draw(); err == nil || tc.bounds && !errors.Is(err, ErrBounds) {
+				t.Errorf("invalid drawing returned %v", err)
+			}
+			if got := len(port.packets); got != 2 {
+				t.Fatalf("invalid drawing sent a request, got %d packets including setup", got)
+			}
+		})
+	}
+	if err := d.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := drawer.DrawTextAt(image.Point{}, "A"); !errors.Is(err, io.ErrClosedPipe) {
+		t.Errorf("drawing after Close = %v, want io.ErrClosedPipe", err)
+	}
+}
+
+func testProxyTransport(transport string) (proxyLink, io.Closer, *[][]byte) {
+	if transport == "SPI" {
+		bus := &testProxySPI{}
+		return proxySPI{bus}, bus, &bus.packets
+	}
+	usb := &testProxyUSB{}
+	return proxyUSB{usb}, usb, &usb.packets
 }
 
 type testProxyUSB struct {
@@ -266,6 +347,11 @@ func (b *testProxySPI) Tx(w, r []byte) error {
 				b.remaining = 3333
 			case 0x02:
 				b.remaining = 2053
+			case 0x21, 0x34:
+				if len(w) < 4 {
+					return errors.New("SPI drawing request has no length")
+				}
+				b.remaining = 7 + (int(w[2]) | int(w[3])<<8)
 			default:
 				return fmt.Errorf("unknown proxy opcode %d", w[0])
 			}

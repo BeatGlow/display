@@ -1,8 +1,10 @@
 package display
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"image"
 	"io"
 	"math/bits"
 	"sync"
@@ -21,6 +23,8 @@ const (
 	proxyMono        = 0x02
 	proxyGray3       = 0x03
 	proxyGray2       = 0x04
+	proxyBitmap      = 0x21 // VFD US ( f 11h subcommand plus 0x10.
+	proxyText        = 0x34 // VFD US $ (0x24) cursor command plus 0x10.
 	proxyShow        = 0x50 // VFD US ( a 40h subcommand plus 0x10.
 	proxyBrightness  = 0x68 // VFD US X (0x58) plus 0x10.
 	proxyReady       = 0xfe
@@ -35,6 +39,7 @@ const (
 	proxyTimeout     = time.Second
 	proxyUSBRate     = 1_000_000
 	proxyUSBPoll     = 50 * time.Millisecond
+	proxyTextWidth   = 7
 )
 
 var errProxyRejected = errors.New("request rejected by Nano Every")
@@ -46,8 +51,25 @@ type GU256X64D7000ProxyConfig struct {
 	GrayLevels int
 }
 
+// GU256X64D7000ProxyDisplay extends [Display] with native monochrome drawing.
+// Coordinates are physical, with y aligned to eight pixels. These methods
+// draw on the current VFD image, which the next Refresh replaces. The proxy
+// rejects native drawing while grayscale PWM is active.
+type GU256X64D7000ProxyDisplay interface {
+	Display
+
+	// DrawBitmap draws an in-bounds rectangle from the entire source image.
+	// Its height must be a multiple of eight pixels. Colors use pixel.MonoModel.
+	DrawBitmap(at image.Point, bitmap image.Image) error
+
+	// DrawTextAt draws printable ASCII in the built-in 7-pixel-wide cells.
+	// Text must fit on one line at the specified position.
+	DrawTextAt(at image.Point, text string) error
+}
+
 // OpenGU256X64D7000ProxySPI opens the Nano Every proxy on a registered SPI port
-// (for example, "/dev/spidev0.0") at 2 MHz, mode 0, MSB first.
+// (for example, "/dev/spidev0.0") at 2 MHz, mode 0, MSB first. The returned
+// display implements [GU256X64D7000ProxyDisplay].
 func OpenGU256X64D7000ProxySPI(portName string, config *GU256X64D7000ProxyConfig) (Display, error) {
 	if _, err := host.Init(); err != nil {
 		return nil, err
@@ -65,7 +87,8 @@ func OpenGU256X64D7000ProxySPI(portName string, config *GU256X64D7000ProxyConfig
 }
 
 // OpenGU256X64D7000ProxyUSB opens the Nano Every proxy's USB CDC serial port
-// (for example, "/dev/ttyACM0") at 1 Mbaud.
+// (for example, "/dev/ttyACM0") at 1 Mbaud. The returned display implements
+// [GU256X64D7000ProxyDisplay].
 func OpenGU256X64D7000ProxyUSB(portName string, config *GU256X64D7000ProxyConfig) (Display, error) {
 	if portName == "" {
 		return nil, errors.New("GU256X64D-7000 proxy requires a USB serial port name")
@@ -328,6 +351,68 @@ func (d *gu256x64d7000Proxy) Refresh() error {
 		}
 	}
 	return d.send(proxyGray2, proxyGray2Size)
+}
+
+func (d *gu256x64d7000Proxy) DrawBitmap(at image.Point, bitmap image.Image) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.closed {
+		return io.ErrClosedPipe
+	}
+	if !validProxyDrawingPosition(at) || bitmap == nil {
+		return ErrBounds
+	}
+	bounds := bitmap.Bounds()
+	width, height := bounds.Dx(), bounds.Dy()
+	if bounds.Empty() || width <= 0 || height <= 0 || height%8 != 0 ||
+		width > d.width-at.X || height > d.height-at.Y {
+		return ErrBounds
+	}
+	bands := height / 8
+	payload := d.packet[3:]
+	binary.LittleEndian.PutUint16(payload, uint16(5+width*bands))
+	payload[2], payload[3] = byte(at.X), byte(at.Y/8)
+	binary.LittleEndian.PutUint16(payload[4:], uint16(width))
+	payload[6] = byte(bands)
+	data := payload[7:]
+	for x := range width {
+		for band := range bands {
+			var packed byte
+			for bit := range 8 {
+				packed <<= 1
+				if pixel.MonoModel.Convert(bitmap.At(bounds.Min.X+x, bounds.Min.Y+8*band+bit)).(pixel.Mono).On {
+					packed |= 1
+				}
+			}
+			data[x*bands+band] = packed
+		}
+	}
+	return d.send(proxyBitmap, 7+width*bands)
+}
+
+func (d *gu256x64d7000Proxy) DrawTextAt(at image.Point, text string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.closed {
+		return io.ErrClosedPipe
+	}
+	if !validProxyDrawingPosition(at) || len(text) == 0 || len(text) > (d.width-at.X)/proxyTextWidth {
+		return ErrBounds
+	}
+	for i := range len(text) {
+		if text[i] < 0x20 || text[i] > 0x7e {
+			return fmt.Errorf("GU256X64D-7000 proxy text contains non-printable ASCII at byte %d", i)
+		}
+	}
+	payload := d.packet[3:]
+	binary.LittleEndian.PutUint16(payload, uint16(2+len(text)))
+	payload[2], payload[3] = byte(at.X), byte(at.Y/8)
+	copy(payload[4:], text)
+	return d.send(proxyText, 4+len(text))
+}
+
+func validProxyDrawingPosition(at image.Point) bool {
+	return at.In(image.Rect(0, 0, gu256x64d7000Width, gu256x64d7000Height)) && at.Y%8 == 0
 }
 
 func (d *gu256x64d7000Proxy) control(op, value byte) error {

@@ -13,12 +13,20 @@ constexpr uint8_t monoOp = 0x02;
 constexpr uint8_t gray3Op = 0x03;
 constexpr uint8_t gray2Op = 0x04;
 constexpr uint8_t controlOpOffset = 0x10;
+constexpr uint8_t vfdBitmapSubcommand = 0x11;  // US ( f
+constexpr uint8_t vfdCursorCommand = 0x24;  // US $
+constexpr uint8_t bitmapOp = vfdBitmapSubcommand + controlOpOffset;
+constexpr uint8_t textOp = vfdCursorCommand + controlOpOffset;
 constexpr uint8_t vfdPowerSubcommand = 0x40;  // US ( a
 constexpr uint8_t vfdBrightnessCommand = 0x58;  // US X
 constexpr uint8_t showOp = vfdPowerSubcommand + controlOpOffset;
 constexpr uint8_t brightnessOp = vfdBrightnessCommand + controlOpOffset;
 constexpr uint16_t monoSize = 256 * 64 / 8;
 constexpr uint16_t width = 256;
+constexpr uint8_t displayBands = 8;
+constexpr uint8_t textCellWidth = 7;
+constexpr uint8_t bitmapHeaderSize = 5;
+constexpr uint8_t textHeaderSize = 2;
 constexpr uint8_t gray3Column = 13;
 constexpr uint16_t gray3Size = width * gray3Column;
 constexpr uint16_t gray2Size = width * 64 / 4;
@@ -181,8 +189,8 @@ inline __attribute__((always_inline)) bool writeGray3Group(
 }
 
 bool writeBank(uint8_t bank, Bitmap bitmap) {
-  if (!command<15>({0x1f, 0x24, 0, bank, 0, 0,  // Cursor (bank*256, 0).
-                0x1f, 0x28, 0x66, 0x11, 0, 1, 8, 0, 1})) {
+  if (!command<15>({0x1f, vfdCursorCommand, 0, bank, 0, 0,  // Cursor (bank*256, 0).
+                0x1f, 0x28, 0x66, vfdBitmapSubcommand, 0, 1, displayBands, 0, 1})) {
     return false;
   }
   // No other code writes these latches during the bitmap transfer.
@@ -317,6 +325,54 @@ bool showFrame(uint8_t op) {
   return true;
 }
 
+bool drawNative(uint8_t op, const uint8_t *payload, uint16_t size) {
+  const bool bitmap = op == bitmapOp;
+  const uint8_t headerSize = bitmap ? bitmapHeaderSize : textHeaderSize;
+  if (size <= headerSize || payload[1] >= displayBands) {
+    return false;
+  }
+
+  const uint8_t x = payload[0], band = payload[1];
+  const uint8_t *data = payload + headerSize;
+  const uint16_t count = size - headerSize;
+  uint16_t columns = 0;
+  uint8_t bands = 0;
+  if (bitmap) {
+    columns = uint16_t(payload[3]) << 8 | payload[2];
+    bands = payload[4];
+    if (columns == 0 || columns > width - x || bands == 0 ||
+        bands > displayBands - band || count != columns * bands) {
+      return false;
+    }
+  } else {
+    if (count > (width - x) / textCellWidth) {
+      return false;
+    }
+    for (uint16_t i = 0; i < count; ++i) {
+      if (data[i] < 0x20 || data[i] > 0x7e) {
+        return false;
+      }
+    }
+  }
+
+  if ((!vfdReady && !initVFD()) ||
+      !command<6>({0x1f, vfdCursorCommand, x, visibleBank, band, 0})) {
+    return false;
+  }
+  if (bitmap && !command<9>({0x1f, 0x28, 0x66, vfdBitmapSubcommand,
+                            uint8_t(columns), uint8_t(columns >> 8), bands, 0, 1})) {
+    return false;
+  }
+  const uint8_t portD = VPORTD.OUT & 0xc0;
+  const uint8_t portB = VPORTB.OUT & 0xfc;
+  for (uint16_t i = 0; i < count; ++i) {
+    if (!writeBitmapByte(data[i], portD, portB)) {
+      return false;
+    }
+  }
+  return waitVFD();
+}
+
 bool execute(uint8_t op, uint8_t value) {
   if (op == monoOp || op == gray3Op || op == gray2Op) {
     return showFrame(op);
@@ -375,6 +431,59 @@ int receiveByte(uint32_t started) {
   }
 }
 
+bool receivePayload(uint8_t *payload, uint16_t size, uint32_t started) {
+  for (uint16_t i = 0; i < size; ++i) {
+    const int value = receiveByte(started);
+    if (value < 0) {
+      return false;
+    }
+    payload[i] = value;
+  }
+  return true;
+}
+
+bool receiveValidCRC(uint8_t op, uint8_t token, const uint8_t *payload, uint16_t size, uint32_t started) {
+  uint16_t received = 0;
+  for (uint8_t shift = 0; shift < 16; shift += 7) {
+    const int value = receiveByte(started);
+    if (value < 0 || value > (shift == 14 ? 3 : 127)) {
+      return false;
+    }
+    received |= uint16_t(value) << shift;
+  }
+  return packetCRC(op, token, payload, size) == received;
+}
+
+bool receiveDrawing(uint8_t op, uint8_t token, uint32_t started) {
+  const int low = receiveByte(started);
+  const int high = receiveByte(started);
+  if (low < 0 || high < 0) {
+    return false;
+  }
+  const uint16_t size = uint16_t(high) << 8 | uint8_t(low);
+  const uint16_t maxSize = op == bitmapOp ? bitmapHeaderSize + monoSize : textHeaderSize + width / textCellWidth;
+  if (pwmMode != monoOp || size > maxSize) {
+    // Drain the request without touching the packed grayscale frame.
+    for (uint16_t i = 0; i < size; ++i) {
+      if (receiveByte(started) < 0) {
+        return false;
+      }
+    }
+    for (uint8_t i = 0; i < 3; ++i) {
+      if (receiveByte(started) < 0) {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  frame[0] = low;
+  frame[1] = high;
+  return receivePayload(frame + 2, size, started) &&
+         receiveValidCRC(op, token, frame, size + 2, started) &&
+         drawNative(op, frame + 2, size);
+}
+
 uint8_t receiveRequest() {
   uint32_t started = millis();
   int op;
@@ -398,6 +507,9 @@ uint8_t receiveRequest() {
     return 0;
   }
   const uint8_t reject = token | 0x80;
+  if (op == bitmapOp || op == textOp) {
+    return receiveDrawing(op, token, started) ? token : reject;
+  }
   uint8_t control = 0;
   uint8_t *payload = &control;
   uint16_t size = 1;
@@ -423,22 +535,8 @@ uint8_t receiveRequest() {
     gray2FrameValid = false;
     payload = frame;
   }
-  for (uint16_t i = 0; i < size; ++i) {
-    int value = receiveByte(started);
-    if (value < 0) {
-      return reject;
-    }
-    payload[i] = value;
-  }
-  uint16_t received = 0;
-  for (uint8_t shift = 0; shift < 16; shift += 7) {
-    int value = receiveByte(started);
-    if (value < 0 || value > (shift == 14 ? 3 : 127)) {
-      return reject;
-    }
-    received |= uint16_t(value) << shift;
-  }
-  if (packetCRC(op, token, payload, size) != received) {
+  if (!receivePayload(payload, size, started) ||
+      !receiveValidCRC(op, token, payload, size, started)) {
     return reject;
   }
   servicePWM();

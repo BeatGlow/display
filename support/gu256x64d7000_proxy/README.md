@@ -86,9 +86,11 @@ Octet offset
         |<-------- CRC input --------->|
 ```
 
-Use a token from 1 through 125. The opcode determines the payload length
-`N`. Compute CRC-16/XMODEM with initial value zero over the opcode, token,
-and payload. The Nano keeps the CRC lookup table in flash.
+Use a token from 1 through 125. Fixed-size opcodes determine the payload
+length `N`. The drawing opcodes carry their own length as the first two
+payload octets. Compute CRC-16/XMODEM with initial value zero over the
+opcode, token, and entire payload, including the drawing length when
+present. The Nano keeps the CRC lookup table in flash.
 
 ```text
               7 6 5 4 3 2 1 0
@@ -108,6 +110,8 @@ and payload. The Nano keeps the CRC lookup table in flash.
 | `0x02` | 2,048 bytes | Publish a monochrome frame |
 | `0x03` | 3,328 bytes | Publish a three-level Gray3Level frame |
 | `0x04` | 4,096 bytes | Publish a four-level Gray2 frame |
+| `0x21` | 2-byte length + bitmap body | Draw a monochrome rectangle with `US ( f 11h` |
+| `0x34` | 2-byte length + text body | Position the cursor with `US $` (`0x24`) and draw text |
 | `0x50` | 0 or 1 | Display power, `US ( a 40h` |
 | `0x68` | Level 1–8 | Global brightness, `US X` (`0x58`) |
 
@@ -182,6 +186,51 @@ octet covers rows 0 through 3. Each pixel has a value from 0 to 3. Pixels
 +-------+-------+-------+-------+
 ```
 
+### Native drawing payloads
+
+Native drawing updates the visible VFD bank. The proxy rejects these
+requests while grayscale PWM is active. To leave PWM, send a frame
+with only black and white pixels. Native drawing uses physical coordinates
+regardless of software rotation. It leaves the Go framebuffer as it was,
+so the next `Refresh` replaces the drawing.
+
+Use `d.(display.GU256X64D7000ProxyDisplay)` to access
+`DrawBitmap(at, bitmap)` and `DrawTextAt(at, text)` on the display returned by either opener.
+The Go methods take pixel coordinates. Align y and bitmap height to
+multiples of eight. On the wire, one band is eight vertical pixels.
+
+#### Rectangular monochrome bitmap (`0x21`)
+
+```text
+    0        1        2        3        4        5        6       7
++--------+--------+--------+--------+--------+--------+--------+------+
+| Len lo | Len hi |   X    | Y band |Width lo|Width hi| Height | Data |
++--------+--------+--------+--------+--------+--------+--------+------+
+                  |<---------------- Len octets -------------------->|
+```
+
+Width counts columns and height counts bands. Both must be positive,
+and the rectangle must fit within 256 columns and 8 bands. Send the data
+in the same order as Mono frame data, with bit 7 at the top of each band.
+`Len = 5 + width * height`, with a maximum of 2,053. The rectangle
+replaces its destination pixels, including pixels whose bits are zero.
+The Go method converts source colors with `pixel.MonoModel`.
+
+#### Positioned text (`0x34`)
+
+```text
+    0        1        2        3              4
++--------+--------+--------+--------+-------------------+
+| Len lo | Len hi |   X    | Y band |  ASCII characters |
++--------+--------+--------+--------+-------------------+
+                  |<----------- Len octets ------------>|
+```
+
+`Len = 2 + character count`. Send at least one printable ASCII character
+(`0x20` through `0x7E`). The built-in font uses seven columns per character
+including spacing, so the text must fit on one line from X to the right
+edge. The wire payload carries the text octets without a terminator.
+
 ### Request exchange
 
 The Nano returns the token on success or sets bit 7 (`token | 0x80`) on
@@ -247,7 +296,7 @@ MPLAB X at 16 MHz.
 | Pixel format | Payload | SPI at 2 MHz | USB CDC at 1 Mbaud, 8N1 |
 | --- | ---: | ---: | ---: |
 | Mono | 2,048 bytes | 62.1 fps (16.09 ms) | 35.2 fps (28.38 ms) |
-| Gray3Level (3 levels) | 3,328 bytes | 24.4 fps (40.97 ms) | 16.4 fps (60.94 ms) |
+| Gray3Level (3 levels) | 3,328 bytes | 24.4 fps (40.98 ms) | 16.4 fps (60.94 ms) |
 | Gray2 (4 levels) | 4,096 bytes | 33.0 fps (30.30 ms) | 18.2 fps (54.88 ms) |
 
 The benchmark measures an initialized proxy with PBUSY held ready and
