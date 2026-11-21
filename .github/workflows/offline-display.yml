@@ -152,7 +152,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/display-artifacts"
           go run ./cmd/display-test \
-            -width 37 -height 19 -color "$COLOR" \
+            -width 256 -height 64 -color "$COLOR" \
             -output "$RUNNER_TEMP/display-artifacts/virtual-$COLOR.png" \
             -trace "$RUNNER_TEMP/display-artifacts/virtual-$COLOR.json" \
             offline virtual
