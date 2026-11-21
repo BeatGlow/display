@@ -5,11 +5,11 @@ SPI or USB CDC. The Nano Every writes the VFD through its 8-bit parallel
 interface. For grayscale it switches the visible VFD memory bank at each
 phase that needs a different mask.
 
-| Mode | Pixel codes | Nominal duty cycles | PWM phase lengths |
+| Go framebuffer | Pixel levels | Nominal duty cycles | PWM phase lengths |
 | --- | --- | --- | --- |
-| Monochrome | `0`, `1` | 0%, 100% | Static |
-| Three-level (1.5-bit gray) | `00`, `01`, `10` | 0%, 50%, 100% | 14 ms, 7 ms, 7 ms |
-| Four-level (2-bit gray) | `00`, `01`, `10`, `11` | 0%, 33⅓%, 66⅔%, 100% | 14 ms each |
+| `pixel.MonoVerticalLSBImage` | 0, 1 | 0%, 100% | Static |
+| `pixel.Gray3LevelImage` | 0, 1, 2 | 0%, 50%, 100% | 14 ms, 7 ms, 7 ms |
+| `pixel.Gray2Image` | 0, 1, 2, 3 | 0%, 33⅓%, 66⅔%, 100% | 14 ms each |
 
 In three-level mode, gray lights during the first phase, and the last two
 phases share the white-only mask. Four-level mode generates three distinct
@@ -59,8 +59,7 @@ Use `display.OpenGU256X64D7000ProxySPI("/dev/spidev0.0", nil)` or
 three-level mode. Pass `&display.GU256X64D7000ProxyConfig{GrayLevels: 4}`
 for four levels or
 `&display.GU256X64D7000ProxyConfig{Config: display.Config{UseMono: true}}`
-for 1-bit frames. The three-level framebuffer uses
-`pixel.Gray3LevelImage`. The returned `display.Display` owns its connection
+for 1-bit frames. The returned `display.Display` owns its connection
 and supports software rotation, `Show`, and `SetContrast`.
 
 ```sh
@@ -76,21 +75,28 @@ SPI is mode 0, MSB first, at 2 MHz. USB CDC uses the stock Nano Every
 bridge at 1,000,000 baud, 8N1. Each request starts with `ff`, followed by an opcode, a token
 (1–125), the payload, and a three-byte CRC. The CRC is CRC-16/XMODEM over the
 opcode, token, and payload, with initial value zero. Transmit CRC bits 0–6,
-7–13, and 14–15 in that order.
+7–13, and 14–15 in that order. The Nano keeps the CRC lookup table in flash.
 
 | Opcode | Payload | VFD action |
 | --- | --- | --- |
 | 2 | 0 or 1 | Display power, `US ( a 40h` |
 | 3 | Level 1–8 | Global brightness, `US X` |
-| 4 | 4,096 bytes | Publish a three-level frame |
 | 5 | 2,048 bytes | Publish a monochrome frame |
-| 6 | 4,096 bytes | Publish a four-level frame |
+| 6 | 4,096 bytes | Publish a four-level Gray2 frame |
+| 7 | 3,328 bytes | Publish a Gray3Level frame |
 
-Every frame is 256×64, stored column by column. A monochrome byte contains
-eight vertical pixels, with the top pixel in bit 7. A grayscale byte contains
-four vertical pixels, with the top pixel in bits 1–0. The firmware rejects
-code `11` in a three-level frame. Wire storage uses two bits per grayscale
-pixel in both modes.
+Every frame is 256×64 and stored column by column.
+
+- A monochrome byte contains eight vertical pixels, with the top pixel in bit 7.
+- A Gray2 byte contains four vertical pixels, with the top pixel in bits 1–0.
+- A Gray3Level byte contains five vertical pixels as base-3 digits, with the
+  top pixel as the least significant digit. Each column is 13 bytes. The final
+  byte of each column contains four pixels and a zero fifth digit. The firmware
+  rejects byte values above 242 and final column bytes above 80. It expands each
+  group of pixels using fixed shifts and a shared mask lookup in RAM.
+
+Gray3Level uses the new opcode 7. Update the firmware and Go driver together
+when upgrading a proxy that used the earlier opcode 4.
 
 On SPI, send the start marker in its own transaction, then poll with four
 zero bytes per transaction until the fourth received byte is `fe`. Send the
@@ -108,13 +114,14 @@ current bank stays visible until the next valid frame restores PWM.
 
 ## Timing and bench checks
 
-At 2 MHz, the monochrome request takes about 8.2 ms on the wire and either
-grayscale request takes about 16.4 ms. Monochrome needs one 2,048-byte VFD
+At 2 MHz, the payload takes about 8.2 ms for monochrome, 13.3 ms for
+Gray3Level, and 16.4 ms for Gray2. Monochrome needs one 2,048-byte VFD
 bitmap write. Three-level gray needs two bitmap writes per update. Four-level
 gray needs a bitmap write for each distinct phase, including between host
 updates. PBUSY latency on the panel determines the achievable rate. Near 20 fps
 is the SPI target. At 1 Mbaud, a monochrome USB request takes about 20.5 ms
-and a grayscale request takes about 41 ms on the UART, before USB buffering,
+and Gray3Level and Gray2 take about 33.3 ms and 41 ms respectively on the UART,
+before USB buffering,
 the ready handshake, and the VFD writes. Arduino documents 1 Mbit/s for the
 stock Nano Every bridge.
 [Arduino Nano Every serial ports](https://docs.arduino.cc/tutorials/nano-every/getting-started/#serial-ports-on-the-arduino-nano-every)
@@ -125,3 +132,23 @@ that the Nano waits for PBUSY and that each transaction completes within the
 frame budget. Verify the duty cycles on solid patches in each grayscale mode.
 During animation, SPI bursts and bank uploads can lengthen a phase. The visible
 PWM, flicker, and achieved frame rate require a bench measurement.
+
+## MPLAB X benchmark
+
+The [benchmark](benchmark/run.py) builds the production sketch for the
+ATmega4809 and uses the MDB simulator stopwatch at 16 MHz. Pass the paths to your
+MPLAB X `mdb.sh` and Arduino megaAVR `avr-g++`, and choose a scratch directory
+for the generated fixtures, ELF, command file, and simulator log.
+
+```sh
+python3 support/gu256x64d7000_proxy/benchmark/run.py \
+  --mdb /path/to/mplab_platform/bin/mdb.sh \
+  --avr-cxx /path/to/arduino/tools/avr-gcc/bin/avr-g++ \
+  --work-dir /path/to/scratch/gu256x64d7000-benchmark
+```
+
+The benchmark checks CRC against the AVR library reference and exercises
+rejection of invalid Gray3Level digits and column padding. It reports work through the frame acknowledgment separately from preparing
+the next Gray2 PWM mask. The
+totals add payload wire time to measured CPU cycles with PBUSY held ready.
+Measure handshake, bridge latency, and VFD busy timing on the physical setup.

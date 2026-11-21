@@ -33,3 +33,7 @@
 !/internal/
 !/internal/buffer/
 !/support/gu256x64d7000_proxy/gu256x64d7000_proxy.ino
+!/support/gu256x64d7000_proxy/xmodem_crc.h
+!/support/gu256x64d7000_proxy/benchmark/Arduino.h
+!/support/gu256x64d7000_proxy/benchmark/bench.cpp
+!/support/gu256x64d7000_proxy/benchmark/run.py

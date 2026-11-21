@@ -45,10 +45,10 @@ func TestGU256X64D7000ProxySendsRotatedGrayscaleAndControls(t *testing.T) {
 		t.Fatalf("sent %d USB requests, want 5", len(port.packets))
 	}
 	// The golden packet includes the first and last columns and CRC-16/XMODEM.
-	frame := make([]byte, 4102)
-	copy(frame, []byte{0xff, 4, 3, 9})
-	frame[3+15], frame[3+4095] = 128, 128
-	copy(frame[4099:], []byte{20, 66, 2})
+	frame := make([]byte, 3334)
+	copy(frame, []byte{0xff, 7, 3, 7})
+	frame[3+12], frame[3+3327] = 54, 54
+	copy(frame[3331:], []byte{86, 73, 1})
 	for _, tc := range []struct {
 		name string
 		got  []byte
@@ -76,48 +76,80 @@ func TestGU256X64D7000ProxySendsRotatedGrayscaleAndControls(t *testing.T) {
 	}
 }
 
-func TestGU256X64D7000ProxySendsDistinctMonochromeAndFourLevelFrames(t *testing.T) {
+func TestGU256X64D7000ProxySendsNativeFrameFormatsOnSPIAndUSB(t *testing.T) {
 	for _, tc := range []struct {
 		name                    string
 		config                  GU256X64D7000ProxyConfig
+		model                   color.Model
 		size                    int
 		op, first, second, last byte
 		crc                     [3]byte
 	}{
-		{"monochrome", GU256X64D7000ProxyConfig{Config: Config{UseMono: true}}, 2048, 5, 255, 0, 1, [3]byte{27, 18, 1}},
-		{"four levels", GU256X64D7000ProxyConfig{GrayLevels: 4}, 4096, 6, 228, 255, 0, [3]byte{116, 120, 3}},
+		{"monochrome", GU256X64D7000ProxyConfig{Config: Config{UseMono: true}}, pixel.MonoModel, 2048, 5, 255, 0, 1, [3]byte{27, 18, 1}},
+		{"three levels", GU256X64D7000ProxyConfig{}, pixel.Gray3LevelModel, 3328, 7, 210, 242, 54, [3]byte{60, 82, 2}},
+		{"four levels", GU256X64D7000ProxyConfig{GrayLevels: 4}, pixel.Gray2Model, 4096, 6, 228, 255, 0, [3]byte{116, 120, 3}},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			port := &testProxyUSB{}
-			d, err := newGU256X64D7000Proxy(proxyUSB{port}, port, &tc.config)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if tc.config.UseMono {
-				for y := range 8 {
-					d.Set(0, y, color.White)
+		for _, transport := range []string{"SPI", "USB"} {
+			t.Run(tc.name+"/"+transport, func(t *testing.T) {
+				var (
+					link    proxyLink
+					port    io.Closer
+					packets *[][]byte
+				)
+				if transport == "SPI" {
+					bus := &testProxySPI{}
+					link, port, packets = proxySPI{bus}, bus, &bus.packets
+				} else {
+					usb := &testProxyUSB{}
+					link, port, packets = proxyUSB{usb}, usb, &usb.packets
 				}
-				d.Set(255, 63, color.White)
-			} else {
-				for y, luma := range []uint8{0, 64, 128, 192, 255, 255, 255, 255} {
-					d.Set(0, y, color.Gray{Y: luma})
+				d, err := newGU256X64D7000Proxy(link, port, &tc.config)
+				if err != nil {
+					t.Fatal(err)
 				}
-			}
-			if err := d.Refresh(); err != nil {
-				t.Fatal(err)
-			}
-			want := make([]byte, tc.size+6)
-			copy(want, []byte{0xff, tc.op, 3, tc.first, tc.second})
-			want[3+tc.size-1] = tc.last
-			copy(want[3+tc.size:], tc.crc[:])
-			got := port.packets[2]
-			if !bytes.Equal(got, want) {
-				t.Errorf("sent %d bytes with header and first pixels %x, want %d bytes starting %x", len(got), got[:min(5, len(got))], len(want), want[:5])
-			}
-			if err := d.Close(); err != nil {
-				t.Error(err)
-			}
-		})
+				if d.ColorModel() != tc.model {
+					t.Fatalf("display color model = %T, want %T", d.ColorModel(), tc.model)
+				}
+				switch tc.model {
+				case pixel.MonoModel:
+					for y := range 8 {
+						d.Set(0, y, color.White)
+					}
+					d.Set(255, 63, color.White)
+				case pixel.Gray3LevelModel:
+					for y, level := range []uint8{0, 1, 2, 1, 2, 2, 2, 2, 2, 2} {
+						d.Set(0, y, pixel.Gray3Level{Y: level})
+					}
+					d.Set(255, 63, color.White)
+				case pixel.Gray2Model:
+					for y, luma := range []uint8{0, 64, 128, 192, 255, 255, 255, 255} {
+						d.Set(0, y, color.Gray{Y: luma})
+					}
+				}
+				if err := d.Refresh(); err != nil {
+					t.Fatal(err)
+				}
+
+				want := make([]byte, tc.size+6)
+				copy(want, []byte{0xff, tc.op, 3, tc.first, tc.second})
+				want[3+tc.size-1] = tc.last
+				copy(want[3+tc.size:], tc.crc[:])
+				if len(*packets) != 3 {
+					t.Fatalf("sent %d packets, want 3", len(*packets))
+				}
+				got := (*packets)[2]
+				if !bytes.Equal(got, want) {
+					index := 0
+					for index < min(len(got), len(want)) && got[index] == want[index] {
+						index++
+					}
+					t.Errorf("packet differs at byte %d (got %d bytes, want %d)", index, len(got), len(want))
+				}
+				if err := d.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+		}
 	}
 }
 
@@ -199,6 +231,8 @@ func TestGU256X64D7000ProxySPIReportsRejectionAndCanRefreshAgain(t *testing.T) {
 }
 
 type testProxySPI struct {
+	packets    [][]byte
+	packet     []byte
 	reserved   bool
 	ready      bool
 	reply      byte
@@ -226,22 +260,27 @@ func (b *testProxySPI) Tx(w, r []byte) error {
 			switch w[0] {
 			case 2, 3:
 				b.remaining = 6
-			case 4, 6:
+			case 6:
 				b.remaining = 4101
+			case 7:
+				b.remaining = 3333
 			case 5:
 				b.remaining = 2053
 			default:
 				return fmt.Errorf("unknown frame opcode %d", w[0])
 			}
 			b.reply = w[1]
+			b.packet = []byte{0xff}
 		}
 		if len(w) != min(4096, b.remaining) {
 			return fmt.Errorf("SPI chunk length %d with %d bytes left in request", len(w), b.remaining)
 		}
+		b.packet = append(b.packet, w...)
 		b.remaining -= len(w)
 		if b.remaining != 0 {
 			return nil
 		}
+		b.packets = append(b.packets, b.packet)
 		b.reserved, b.ready = false, false
 		if b.rejectNext {
 			b.reply |= 0x80

@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#include <util/crc16.h>
+#include "xmodem_crc.h"
 
 #if !defined(ARDUINO_AVR_NANO_EVERY)
 #error "Select Arduino Nano Every (arduino:megaavr:nona4809)"
@@ -11,21 +11,24 @@ constexpr uint8_t readyByte = 0xfe;
 constexpr uint32_t usbBaud = 1000000;
 constexpr uint8_t showOp = 2;
 constexpr uint8_t brightnessOp = 3;
-constexpr uint8_t gray3Op = 4;
+constexpr uint8_t gray3Op = 7;
 constexpr uint8_t monoOp = 5;
-constexpr uint8_t gray4Op = 6;
+constexpr uint8_t gray2Op = 6;
 constexpr uint16_t monoSize = 256 * 64 / 8;
-constexpr uint16_t graySize = 256 * 64 / 4;
+constexpr uint16_t width = 256;
+constexpr uint8_t gray3Column = 13;
+constexpr uint16_t gray3Size = width * gray3Column;
+constexpr uint16_t gray2Size = width * 64 / 4;
 constexpr uint8_t gray3PhaseMs[] = {14, 7, 7};
-constexpr uint8_t gray4PhaseMs = 14;
+constexpr uint8_t gray2PhaseMs = 14;
 
-uint8_t frame[graySize];
-// Each lookup turns four packed pixels into four VFD bits. A high-bit
-// mask on each input reuses litPixels for the >= 2 phase.
+uint8_t frame[gray2Size];
+// Both grayscale formats use the same RAM for their mask lookup tables.
 uint8_t litPixels[256];
 uint8_t fullPixels[256];
-enum class Bitmap : uint8_t { Mono, Lit, HighBit, Full };
-constexpr Bitmap gray4Bitmaps[] = {Bitmap::Lit, Bitmap::HighBit, Bitmap::Full};
+uint8_t maskFormat;
+enum class Bitmap : uint8_t { Mono, Gray3Lit, Gray3Full, Lit, HighBit, Full };
+constexpr Bitmap gray2Bitmaps[] = {Bitmap::Lit, Bitmap::HighBit, Bitmap::Full};
 
 bool useSPI;
 bool vfdReady;
@@ -35,11 +38,11 @@ uint8_t visibleBank;
 uint8_t pwmMode = monoOp;
 uint8_t pwmPhase;
 uint32_t phaseStarted;
-bool gray4FrameValid;
-bool gray4NextReady;
+bool gray2FrameValid;
+bool gray2NextReady;
 
-bool waitVFD() {
-  // Most bytes are accepted quickly. Avoid running millis() on the fast path.
+bool waitBusyVFD() {
+  // Poll briefly before using millis() for the timeout.
   uint8_t spin = 0;
   while (VPORTF.IN & PIN4_bm) {
     if (++spin == 0) {
@@ -56,7 +59,11 @@ bool waitVFD() {
   return true;
 }
 
-bool writeVFD(uint8_t value) {
+inline bool waitVFD() {
+  return !(VPORTF.IN & PIN4_bm) || waitBusyVFD();
+}
+
+inline __attribute__((always_inline)) bool writeVFD(uint8_t value) {
   if (!waitVFD()) {
     return false;
   }
@@ -92,8 +99,8 @@ bool initVFD() {
   visibleBank = 0;
   pwmMode = monoOp;
   pwmPhase = 0;
-  gray4FrameValid = false;
-  gray4NextReady = false;
+  gray2FrameValid = false;
+  gray2NextReady = false;
   VPORTA.OUT &= ~PIN0_bm;  // /RESET (D2)
   delay(2);
   VPORTA.OUT |= PIN0_bm;
@@ -113,6 +120,49 @@ bool switchBank() {
   return true;
 }
 
+void prepareMasks(uint8_t format) {
+  if (maskFormat == format) {
+    return;
+  }
+  for (uint16_t packed = 0; packed < 256; ++packed) {
+    uint8_t value = packed;
+    uint8_t lit = 0;
+    uint8_t full = 0;
+    const bool ternary = format == gray3Op;
+    for (uint8_t bit = ternary ? 16 : 8; bit; bit >>= 1) {
+      const uint8_t level = ternary ? value % 3 : value & 3;
+      value = ternary ? value / 3 : value >> 2;
+      if (level != 0) {
+        lit |= bit;
+      }
+      if (level == (ternary ? 2 : 3)) {
+        full |= bit;
+      }
+    }
+    litPixels[packed] = lit;
+    fullPixels[packed] = full;
+  }
+  maskFormat = format;
+}
+
+template <bool FullGroup>
+bool writeGray3Group(const uint8_t *src, const uint8_t *mask) {
+  const uint8_t a = mask[src[0]], b = mask[src[1]], c = mask[src[2]];
+  const uint8_t d = mask[src[3]], e = mask[src[4]];
+  // Five base-3 digits decode to five vertical mask bits. The first
+  // five groups contribute 24 bits, with one bit carried into byte four.
+  if (!writeVFD((a << 3) | (b >> 2)) ||
+      !writeVFD((b << 6) | (c << 1) | (d >> 4)) ||
+      !writeVFD((d << 4) | (e >> 1))) {
+    return false;
+  }
+  if (!FullGroup) {
+    return true;  // The 25th bit is padding in the last group of the column.
+  }
+  const uint8_t f = mask[src[5]], g = mask[src[6]], h = mask[src[7]];
+  return writeVFD((e << 7) | (f << 2) | (g >> 3)) && writeVFD((g << 5) | h);
+}
+
 bool writeBank(uint8_t bank, Bitmap bitmap) {
   if (!command<15>({0x1f, 0x24, 0, bank, 0, 0,  // Cursor (bank*256, 0).
                 0x1f, 0x28, 0x66, 0x11, 0, 1, 8, 0, 1})) {
@@ -124,10 +174,17 @@ bool writeBank(uint8_t bank, Bitmap bitmap) {
         return false;
       }
     }
+  } else if (bitmap == Bitmap::Gray3Lit || bitmap == Bitmap::Gray3Full) {
+    const uint8_t *mask = bitmap == Bitmap::Gray3Full ? fullPixels : litPixels;
+    for (const uint8_t *column = frame; column != frame + gray3Size; column += gray3Column) {
+      if (!writeGray3Group<true>(column, mask) || !writeGray3Group<false>(column + 8, mask)) {
+        return false;
+      }
+    }
   } else {
     const uint8_t *mask = bitmap == Bitmap::Full ? fullPixels : litPixels;
     const uint8_t bits = bitmap == Bitmap::HighBit ? 0xaa : 0xff;
-    for (uint16_t i = 0; i < graySize; i += 2) {
+    for (uint16_t i = 0; i < gray2Size; i += 2) {
       if (!writeVFD((mask[frame[i] & bits] << 4) | mask[frame[i + 1] & bits])) {
         return false;
       }
@@ -146,20 +203,20 @@ void servicePWM() {
   }
 
   const uint8_t next = nextPhase();
-  if (pwmMode == gray4Op) {
-    if (!gray4FrameValid) {
+  if (pwmMode == gray2Op) {
+    if (!gray2FrameValid) {
       return;
     }
-    if (!gray4NextReady) {
+    if (!gray2NextReady) {
       // Reuse the hidden bank for the next of three distinct masks.
-      gray4NextReady = writeBank(visibleBank ^ 1, gray4Bitmaps[next]);
-      if (!gray4NextReady) {
+      gray2NextReady = writeBank(visibleBank ^ 1, gray2Bitmaps[next]);
+      if (!gray2NextReady) {
         return;
       }
     }
   }
 
-  const uint8_t duration = pwmMode == gray3Op ? gray3PhaseMs[pwmPhase] : gray4PhaseMs;
+  const uint8_t duration = pwmMode == gray3Op ? gray3PhaseMs[pwmPhase] : gray2PhaseMs;
   if (millis() - phaseStarted < duration) {
     return;
   }
@@ -172,21 +229,36 @@ void servicePWM() {
   if (switchBank()) {
     pwmPhase = next;
     phaseStarted = millis();
-    gray4NextReady = false;
+    gray2NextReady = false;
   }
 }
 
 bool showFrame(uint8_t op) {
   bool hasGray = false;
-  if (op != monoOp) {
-    for (uint16_t i = 0; i < graySize; ++i) {
-      const uint8_t packed = frame[i];
-      const uint8_t low = packed & 0x55;
-      const uint8_t high = (packed >> 1) & 0x55;
-      if (op == gray3Op && (low & high)) {
-        return false;  // 11 is reserved in three-level mode.
+  if (op == gray3Op) {
+    prepareMasks(op);
+    for (const uint8_t *column = frame; column != frame + gray3Size; column += gray3Column) {
+      if (column[gray3Column - 1] >= 81) {
+        return false;  // The fifth digit of the last byte must be zero.
       }
-      hasGray |= op == gray3Op ? low != 0 : low != high;
+      for (uint8_t group = 0; group < gray3Column; ++group) {
+        const uint8_t packed = column[group];
+        if (packed >= 243) {
+          return false;
+        }
+        if (!hasGray) {
+          hasGray = litPixels[packed] != fullPixels[packed];
+        }
+      }
+    }
+  } else if (op == gray2Op) {
+    prepareMasks(op);
+    for (uint16_t i = 0; i < gray2Size; ++i) {
+      const uint8_t packed = frame[i];
+      if ((packed ^ (packed >> 1)) & 0x55) {
+        hasGray = true;
+        break;
+      }
     }
   }
   if (!vfdReady && !initVFD()) {
@@ -197,16 +269,16 @@ bool showFrame(uint8_t op) {
   uint8_t phase = 0;
   if (mode == pwmMode && hasGray) {
     phase = pwmPhase;
-    if (mode == gray4Op && millis() - phaseStarted >= gray4PhaseMs) {
+    if (mode == gray2Op && millis() - phaseStarted >= gray2PhaseMs) {
       phase = nextPhase();
     }
   }
 
   Bitmap bitmap = Bitmap::Mono;
   if (op == gray3Op) {
-    bitmap = phase == 0 ? Bitmap::Lit : Bitmap::HighBit;
-  } else if (op == gray4Op) {
-    bitmap = gray4Bitmaps[phase];
+    bitmap = phase == 0 ? Bitmap::Gray3Lit : Bitmap::Gray3Full;
+  } else if (op == gray2Op) {
+    bitmap = gray2Bitmaps[phase];
   }
   if (!writeBank(visibleBank ^ 1, bitmap) || !switchBank()) {
     return false;
@@ -214,18 +286,18 @@ bool showFrame(uint8_t op) {
   if (mode != pwmMode || phase != pwmPhase) {
     phaseStarted = millis();
   }
-  if (mode == gray3Op && !writeBank(visibleBank ^ 1, phase == 0 ? Bitmap::HighBit : Bitmap::Lit)) {
+  if (mode == gray3Op && !writeBank(visibleBank ^ 1, phase == 0 ? Bitmap::Gray3Full : Bitmap::Gray3Lit)) {
     return false;
   }
   pwmMode = mode;
   pwmPhase = phase;
-  gray4FrameValid = mode == gray4Op;
-  gray4NextReady = false;
+  gray2FrameValid = mode == gray2Op;
+  gray2NextReady = false;
   return true;
 }
 
 bool execute(uint8_t op, uint8_t value) {
-  if (op == monoOp || op == gray3Op || op == gray4Op) {
+  if (op == monoOp || op == gray3Op || op == gray2Op) {
     return showFrame(op);
   }
   if ((op == showOp && value > 1) || (op == brightnessOp && (value < 1 || value > 8))) {
@@ -310,8 +382,10 @@ uint8_t receiveRequest() {
   uint16_t size = 1;
   switch (op) {
     case gray3Op:
-    case gray4Op:
-      size = graySize;
+      size = gray3Size;
+      break;
+    case gray2Op:
+      size = gray2Size;
       break;
     case monoOp:
       size = monoSize;
@@ -325,7 +399,7 @@ uint8_t receiveRequest() {
   if (size != 1) {
     // Keep displaying the current bank if an interrupted transfer overwrites
     // the packed data needed to prepare further four-level phases.
-    gray4FrameValid = false;
+    gray2FrameValid = false;
     payload = frame;
   }
   for (uint16_t i = 0; i < size; ++i) {
@@ -343,12 +417,7 @@ uint8_t receiveRequest() {
     }
     received |= uint16_t(value) << shift;
   }
-  uint16_t crc = _crc_xmodem_update(0, op);
-  crc = _crc_xmodem_update(crc, token);
-  for (uint16_t i = 0; i < size; ++i) {
-    crc = _crc_xmodem_update(crc, payload[i]);
-  }
-  if (crc != received) {
+  if (packetCRC(op, token, payload, size) != received) {
     return reject;
   }
   servicePWM();
@@ -367,19 +436,6 @@ void setup() {
   PORTF.PIN4CTRL = PORT_PULLUPEN_bm;  // Disconnected PBUSY reads busy.
   pinMode(7, INPUT_PULLUP);
   useSPI = digitalRead(7) == LOW;
-
-  for (uint16_t packed = 0; packed < 256; ++packed) {
-    uint8_t value = packed;
-    for (uint8_t bit = 8; bit; bit >>= 1, value >>= 2) {
-      const uint8_t level = value & 3;
-      if (level >= 1) {
-        litPixels[packed] |= bit;
-      }
-      if (level == 3) {
-        fullPixels[packed] |= bit;
-      }
-    }
-  }
 
   if (useSPI) {
     // ALT2: MOSI D11 (PE0), MISO D12 (PE1), SCK D13 (PE2), SS D8 (PE3).

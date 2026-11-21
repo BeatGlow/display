@@ -3,7 +3,6 @@ package display
 import (
 	"errors"
 	"fmt"
-	"image"
 	"io"
 	"math/bits"
 	"sync"
@@ -19,21 +18,23 @@ import (
 )
 
 const (
-	proxyShow       = 2
-	proxyBrightness = 3
-	proxyGray3      = 4
-	proxyMono       = 5
-	proxyGray4      = 6
-	proxyReady      = 0xfe
-	proxyStart      = 0xff
-	proxyMonoColumn = gu256x64d7000Height / 8
-	proxyGrayColumn = gu256x64d7000Height / 4
-	proxyMonoSize   = gu256x64d7000Width * proxyMonoColumn
-	proxyGraySize   = gu256x64d7000Width * proxyGrayColumn
-	proxySPIChunk   = 4096 // Default Linux spidev message limit.
-	proxyTimeout    = time.Second
-	proxyUSBRate    = 1_000_000
-	proxyUSBPoll    = 50 * time.Millisecond
+	proxyShow        = 2
+	proxyBrightness  = 3
+	proxyGray3       = 7
+	proxyMono        = 5
+	proxyGray2       = 6
+	proxyReady       = 0xfe
+	proxyStart       = 0xff
+	proxyMonoColumn  = gu256x64d7000Height / 8
+	proxyGray2Column = gu256x64d7000Height / 4
+	proxyGray3Column = (gu256x64d7000Height + 4) / 5
+	proxyMonoSize    = gu256x64d7000Width * proxyMonoColumn
+	proxyGray2Size   = gu256x64d7000Width * proxyGray2Column
+	proxyGray3Size   = gu256x64d7000Width * proxyGray3Column
+	proxySPIChunk    = 4096 // Default Linux spidev message limit.
+	proxyTimeout     = time.Second
+	proxyUSBRate     = 1_000_000
+	proxyUSBPoll     = 50 * time.Millisecond
 )
 
 var errProxyRejected = errors.New("request rejected by Nano Every")
@@ -199,7 +200,7 @@ type gu256x64d7000Proxy struct {
 	token   byte
 	closed  bool
 	frameOp byte
-	packet  [proxyGraySize + 6]byte
+	packet  [proxyGray2Size + 6]byte
 }
 
 func newGU256X64D7000Proxy(link proxyLink, port io.Closer, config *GU256X64D7000ProxyConfig) (Display, error) {
@@ -215,7 +216,7 @@ func newGU256X64D7000Proxy(link proxyLink, port io.Closer, config *GU256X64D7000
 	switch config.GrayLevels {
 	case 0, 3:
 	case 4:
-		mode = proxyGray4
+		mode = proxyGray2
 	default:
 		_ = port.Close()
 		return nil, fmt.Errorf("GU256X64D-7000 proxy supports 3 or 4 grayscale levels, got %d", config.GrayLevels)
@@ -232,7 +233,7 @@ func newGU256X64D7000Proxy(link proxyLink, port io.Closer, config *GU256X64D7000
 	} else if mode == proxyGray3 {
 		d.Image = pixel.NewGray3LevelImage(w, h)
 	} else {
-		d.Image = image.NewGray(image.Rect(0, 0, w, h))
+		d.Image = pixel.NewGray2Image(w, h)
 	}
 	_ = d.SetRotation(config.Rotation)
 	if err := d.Refresh(); err != nil {
@@ -293,26 +294,40 @@ func (d *gu256x64d7000Proxy) Refresh() error {
 		return d.send(proxyMono, proxyMonoSize)
 	}
 
-	gray3, _ := d.Image.(*pixel.Gray3LevelImage)
-	gray4, _ := d.Image.(*image.Gray)
-	payload := d.packet[3 : 3+proxyGraySize]
+	if d.frameOp == proxyGray3 {
+		buffer := d.Image.(*pixel.Gray3LevelImage)
+		payload := d.packet[3 : 3+proxyGray3Size]
+		for x := range d.width {
+			column := payload[x*proxyGray3Column:]
+			for group := range proxyGray3Column - 1 {
+				y := 5 * group
+				column[group] = buffer.Gray3LevelAt(x, y).Y +
+					3*buffer.Gray3LevelAt(x, y+1).Y +
+					9*buffer.Gray3LevelAt(x, y+2).Y +
+					27*buffer.Gray3LevelAt(x, y+3).Y +
+					81*buffer.Gray3LevelAt(x, y+4).Y
+			}
+			y := 5 * (proxyGray3Column - 1)
+			column[proxyGray3Column-1] = buffer.Gray3LevelAt(x, y).Y +
+				3*buffer.Gray3LevelAt(x, y+1).Y +
+				9*buffer.Gray3LevelAt(x, y+2).Y +
+				27*buffer.Gray3LevelAt(x, y+3).Y
+		}
+		return d.send(proxyGray3, proxyGray3Size)
+	}
+
+	buffer := d.Image.(*pixel.Gray2Image)
+	payload := d.packet[3 : 3+proxyGray2Size]
 	for x := range d.width {
-		for group := range proxyGrayColumn {
+		for group := range proxyGray2Column {
 			var packed byte
 			for dy := range 4 {
-				y := 4*group + dy
-				var level byte
-				if gray3 != nil {
-					level = gray3.Gray3LevelAt(x, y).Y
-				} else {
-					level = gray4.GrayAt(x, y).Y >> 6
-				}
-				packed |= level << (2 * dy)
+				packed |= buffer.At(x, 4*group+dy).(pixel.Gray2).Y << (2 * dy)
 			}
-			payload[x*proxyGrayColumn+group] = packed
+			payload[x*proxyGray2Column+group] = packed
 		}
 	}
-	return d.send(d.frameOp, proxyGraySize)
+	return d.send(proxyGray2, proxyGray2Size)
 }
 
 func (d *gu256x64d7000Proxy) control(op, value byte) error {
