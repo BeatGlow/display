@@ -9,11 +9,14 @@ namespace {
 constexpr uint8_t startByte = 0xff;
 constexpr uint8_t readyByte = 0xfe;
 constexpr uint32_t usbBaud = 1000000;
-constexpr uint8_t showOp = 2;
-constexpr uint8_t brightnessOp = 3;
-constexpr uint8_t gray3Op = 7;
-constexpr uint8_t monoOp = 5;
-constexpr uint8_t gray2Op = 6;
+constexpr uint8_t monoOp = 0x02;
+constexpr uint8_t gray3Op = 0x03;
+constexpr uint8_t gray2Op = 0x04;
+constexpr uint8_t controlOpOffset = 0x10;
+constexpr uint8_t vfdPowerSubcommand = 0x40;  // US ( a
+constexpr uint8_t vfdBrightnessCommand = 0x58;  // US X
+constexpr uint8_t showOp = vfdPowerSubcommand + controlOpOffset;
+constexpr uint8_t brightnessOp = vfdBrightnessCommand + controlOpOffset;
 constexpr uint16_t monoSize = 256 * 64 / 8;
 constexpr uint16_t width = 256;
 constexpr uint8_t gray3Column = 13;
@@ -100,11 +103,11 @@ bool command(const uint8_t (&bytes)[N]) {
 }
 
 bool setPower(bool enabled) {
-  return command<5>({0x1f, 0x28, 0x61, 0x40, uint8_t(enabled)});
+  return command<5>({0x1f, 0x28, 0x61, vfdPowerSubcommand, uint8_t(enabled)});
 }
 
 bool setBrightness(uint8_t level) {
-  return command<3>({0x1f, 0x58, level});
+  return command<3>({0x1f, vfdBrightnessCommand, level});
 }
 
 bool initVFD() {

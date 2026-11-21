@@ -79,11 +79,15 @@ opcode, token, and payload, with initial value zero. Transmit CRC bits 0–6,
 
 | Opcode | Payload | VFD action |
 | --- | --- | --- |
-| 2 | 0 or 1 | Display power, `US ( a 40h` |
-| 3 | Level 1–8 | Global brightness, `US X` |
-| 5 | 2,048 bytes | Publish a monochrome frame |
-| 6 | 4,096 bytes | Publish a four-level Gray2 frame |
-| 7 | 3,328 bytes | Publish a Gray3Level frame |
+| `0x02` | 2,048 bytes | Publish a monochrome frame |
+| `0x03` | 3,328 bytes | Publish a three-level Gray3Level frame |
+| `0x04` | 4,096 bytes | Publish a four-level Gray2 frame |
+| `0x50` | 0 or 1 | Display power, `US ( a 40h` |
+| `0x68` | Level 1–8 | Global brightness, `US X` (`0x58`) |
+
+Control opcodes use the range starting at `0x10`. Each is the VFD command
+byte plus `0x10`. For a grouped VFD command such as display power, use the
+subcommand byte.
 
 Every frame is 256×64 and stored column by column.
 
@@ -95,8 +99,8 @@ Every frame is 256×64 and stored column by column.
   rejects byte values above 242 and final column bytes above 80. It expands each
   group of pixels using fixed shifts and a shared mask lookup in RAM.
 
-Gray3Level uses the new opcode 7. Update the firmware and Go driver together
-when upgrading a proxy that used the earlier opcode 4.
+Update the firmware and Go driver together when upgrading from an earlier
+proxy opcode map.
 
 On SPI, send the start marker in its own transaction, then poll with four
 zero bytes per transaction until the fourth received byte is `fe`. Send the

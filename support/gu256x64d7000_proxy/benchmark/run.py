@@ -64,7 +64,7 @@ def print_results(log):
     ]
     opcodes = re.findall(r"benchmarkOp=\s*(\d+)", log)
     passed = re.findall(r"benchmarkOK=\s*(\d+)", log)
-    if len(elapsed) != 9 or opcodes != ["5", "7", "6"] or passed != ["1"] * 3:
+    if len(elapsed) != 9 or opcodes != ["2", "3", "4"] or passed != ["1"] * 3:
         raise SystemExit("Expected three passing simulator trials. Inspect mdb.log.")
     print("Mode       Bytes   CRC cyc  Request cyc  Next mask cyc  SPI ms  USB ms")
     for i, (name, size) in enumerate([("Mono", 2048), ("Gray3Level", 3328), ("Gray2", 4096)]):

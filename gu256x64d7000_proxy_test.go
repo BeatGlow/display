@@ -46,17 +46,17 @@ func TestGU256X64D7000ProxySendsRotatedGrayscaleAndControls(t *testing.T) {
 	}
 	// The golden packet includes the first and last columns and CRC-16/XMODEM.
 	frame := make([]byte, 3334)
-	copy(frame, []byte{0xff, 7, 3, 7})
+	copy(frame, []byte{0xff, 0x03, 3, 7})
 	frame[3+12], frame[3+3327] = 54, 54
-	copy(frame[3331:], []byte{86, 73, 1})
+	copy(frame[3331:], []byte{111, 114, 2})
 	for _, tc := range []struct {
 		name string
 		got  []byte
 		want []byte
 	}{
 		{"grayscale frame", port.packets[2], frame},
-		{"maximum brightness", port.packets[3], []byte{0xff, 3, 4, 8, 28, 41, 0}},
-		{"power off", port.packets[4], []byte{0xff, 2, 5, 0, 21, 35, 2}},
+		{"maximum brightness", port.packets[3], []byte{0xff, 0x68, 4, 8, 6, 126, 1}},
+		{"power off", port.packets[4], []byte{0xff, 0x50, 5, 0, 59, 66, 2}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if !bytes.Equal(tc.got, tc.want) {
@@ -85,9 +85,9 @@ func TestGU256X64D7000ProxySendsNativeFrameFormatsOnSPIAndUSB(t *testing.T) {
 		op, first, second, last byte
 		crc                     [3]byte
 	}{
-		{"monochrome", GU256X64D7000ProxyConfig{Config: Config{UseMono: true}}, pixel.MonoModel, 2048, 5, 255, 0, 1, [3]byte{27, 18, 1}},
-		{"three levels", GU256X64D7000ProxyConfig{}, pixel.Gray3LevelModel, 3328, 7, 210, 242, 54, [3]byte{60, 82, 2}},
-		{"four levels", GU256X64D7000ProxyConfig{GrayLevels: 4}, pixel.Gray2Model, 4096, 6, 228, 255, 0, [3]byte{116, 120, 3}},
+		{"monochrome", GU256X64D7000ProxyConfig{Config: Config{UseMono: true}}, pixel.MonoModel, 2048, 0x02, 255, 0, 1, [3]byte{91, 20, 2}},
+		{"three levels", GU256X64D7000ProxyConfig{}, pixel.Gray3LevelModel, 3328, 0x03, 210, 242, 54, [3]byte{5, 105, 1}},
+		{"four levels", GU256X64D7000ProxyConfig{GrayLevels: 4}, pixel.Gray2Model, 4096, 0x04, 228, 255, 0, [3]byte{48, 97, 0}},
 	} {
 		for _, transport := range []string{"SPI", "USB"} {
 			t.Run(tc.name+"/"+transport, func(t *testing.T) {
@@ -258,16 +258,16 @@ func (b *testProxySPI) Tx(w, r []byte) error {
 	case b.ready:
 		if b.remaining == 0 {
 			switch w[0] {
-			case 2, 3:
+			case 0x50, 0x68:
 				b.remaining = 6
-			case 6:
+			case 0x04:
 				b.remaining = 4101
-			case 7:
+			case 0x03:
 				b.remaining = 3333
-			case 5:
+			case 0x02:
 				b.remaining = 2053
 			default:
-				return fmt.Errorf("unknown frame opcode %d", w[0])
+				return fmt.Errorf("unknown proxy opcode %d", w[0])
 			}
 			b.reply = w[1]
 			b.packet = []byte{0xff}

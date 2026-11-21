@@ -18,11 +18,11 @@ import (
 )
 
 const (
-	proxyShow        = 2
-	proxyBrightness  = 3
-	proxyGray3       = 7
-	proxyMono        = 5
-	proxyGray2       = 6
+	proxyMono        = 0x02
+	proxyGray3       = 0x03
+	proxyGray2       = 0x04
+	proxyShow        = 0x50 // VFD US ( a 40h subcommand plus 0x10.
+	proxyBrightness  = 0x68 // VFD US X (0x58) plus 0x10.
 	proxyReady       = 0xfe
 	proxyStart       = 0xff
 	proxyMonoColumn  = gu256x64d7000Height / 8
