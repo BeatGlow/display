@@ -349,6 +349,11 @@ func reverseBits(b byte) byte {
 	return b<<4 | b>>4
 }
 
+// The GP12xx drivers expand 8-bit contrast to a 10-bit dimming value.
+func gp12xxPreviewBrightness(level uint8) uint8 {
+	return uint8(uint32(level) * 4 * 255 / 1023)
+}
+
 type brightnessPreview struct {
 	image.Image
 	scale uint8
