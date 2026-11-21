@@ -23,6 +23,7 @@ const (
 	proxyMono        = 0x02
 	proxyGray3       = 0x03
 	proxyGray2       = 0x04
+	proxyVersion     = 0x0f
 	proxyBitmap      = 0x21 // VFD US ( f 11h subcommand plus 0x10.
 	proxyText        = 0x34 // VFD US $ (0x24) cursor command plus 0x10.
 	proxyShow        = 0x50 // VFD US ( a 40h subcommand plus 0x10.
@@ -40,6 +41,7 @@ const (
 	proxyUSBRate     = 1_000_000
 	proxyUSBPoll     = 50 * time.Millisecond
 	proxyTextWidth   = 7
+	proxyVersionEnd  = 0x03
 )
 
 var errProxyRejected = errors.New("request rejected by Nano Every")
@@ -57,6 +59,10 @@ type GU256X64D7000ProxyConfig struct {
 // rejects native drawing while grayscale PWM is active.
 type GU256X64D7000ProxyDisplay interface {
 	Display
+
+	// ProtocolVersion reports the Nano proxy protocol version with the major
+	// version in the high byte and the minor version in the low byte.
+	ProtocolVersion() (uint16, error)
 
 	// DrawBitmap draws an in-bounds rectangle from the entire source image.
 	// Its height must be a multiple of eight pixels. Colors use pixel.MonoModel.
@@ -105,14 +111,14 @@ func OpenGU256X64D7000ProxyUSB(portName string, config *GU256X64D7000ProxyConfig
 }
 
 type proxyLink interface {
-	exchange(packet []byte, token byte) error
+	exchange(packet []byte, token byte, response []byte) error
 }
 
 type proxySPI struct {
 	bus interface{ Tx(w, r []byte) error }
 }
 
-func (s proxySPI) exchange(packet []byte, token byte) error {
+func (s proxySPI) exchange(packet []byte, token byte, response []byte) error {
 	if err := s.bus.Tx(packet[:1], nil); err != nil {
 		return err
 	}
@@ -126,7 +132,22 @@ func (s proxySPI) exchange(packet []byte, token byte) error {
 		}
 		body = body[n:]
 	}
-	return s.wait(token)
+	if err := s.wait(token); err != nil || len(response) == 0 {
+		return err
+	}
+	for i := range response {
+		selector := byte(i + 1)
+		request := [4]byte{selector, selector, selector, selector}
+		var reply [4]byte
+		if err := s.bus.Tx(request[:], reply[:]); err != nil {
+			return err
+		}
+		response[i] = reply[3]
+	}
+	if err := s.bus.Tx([]byte{proxyVersionEnd}, nil); err != nil {
+		return err
+	}
+	return s.wait(proxyReady)
 }
 
 func (s proxySPI) wait(expected byte) error {
@@ -152,7 +173,7 @@ type proxyUSB struct {
 	}
 }
 
-func (s proxyUSB) exchange(packet []byte, token byte) error {
+func (s proxyUSB) exchange(packet []byte, token byte, response []byte) error {
 	if err := s.port.ResetInputBuffer(); err != nil {
 		return err
 	}
@@ -162,7 +183,21 @@ func (s proxyUSB) exchange(packet []byte, token byte) error {
 	if err := s.write(packet[1:]); err != nil {
 		return err
 	}
-	return s.wait(token, nil)
+	if err := s.wait(token, nil); err != nil || len(response) == 0 {
+		return err
+	}
+	deadline := time.Now().Add(proxyTimeout)
+	for len(response) != 0 && time.Now().Before(deadline) {
+		n, err := s.port.Read(response)
+		if err != nil {
+			return err
+		}
+		response = response[n:]
+	}
+	if len(response) != 0 {
+		return ErrNotReady
+	}
+	return nil
 }
 
 func (s proxyUSB) write(data []byte) error {
@@ -353,6 +388,19 @@ func (d *gu256x64d7000Proxy) Refresh() error {
 	return d.send(proxyGray2, proxyGray2Size)
 }
 
+func (d *gu256x64d7000Proxy) ProtocolVersion() (uint16, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.closed {
+		return 0, io.ErrClosedPipe
+	}
+	var response [2]byte
+	if err := d.sendRequest(proxyVersion, 0, response[:]); err != nil {
+		return 0, err
+	}
+	return binary.BigEndian.Uint16(response[:]), nil
+}
+
 func (d *gu256x64d7000Proxy) DrawBitmap(at image.Point, bitmap image.Image) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -424,6 +472,10 @@ func (d *gu256x64d7000Proxy) control(op, value byte) error {
 }
 
 func (d *gu256x64d7000Proxy) send(op byte, payloadLen int) error {
+	return d.sendRequest(op, payloadLen, nil)
+}
+
+func (d *gu256x64d7000Proxy) sendRequest(op byte, payloadLen int, response []byte) error {
 	d.token = d.token%125 + 1
 	d.packet[0], d.packet[1], d.packet[2] = proxyStart, op, d.token
 	end := 3 + payloadLen
@@ -440,7 +492,7 @@ func (d *gu256x64d7000Proxy) send(op byte, payloadLen int) error {
 		}
 	}
 	d.packet[end], d.packet[end+1], d.packet[end+2] = byte(crc&127), byte(crc>>7&127), byte(crc>>14)
-	if err := d.link.exchange(d.packet[:end+3], d.token); err != nil {
+	if err := d.link.exchange(d.packet[:end+3], d.token, response); err != nil {
 		return fmt.Errorf("GU256X64D-7000 proxy operation %d: %w", op, err)
 	}
 	return nil

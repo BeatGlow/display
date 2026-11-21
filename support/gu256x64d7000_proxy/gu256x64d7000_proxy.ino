@@ -13,6 +13,13 @@ constexpr uint32_t usbBaud = 1000000;
 constexpr uint8_t monoOp = 0x02;
 constexpr uint8_t gray3Op = 0x03;
 constexpr uint8_t gray2Op = 0x04;
+constexpr uint8_t versionOp = 0x0f;
+constexpr uint16_t protocolVersion = 0x0100;
+constexpr uint8_t versionMajor = protocolVersion >> 8;
+constexpr uint8_t versionMinor = protocolVersion & 0xff;
+constexpr uint8_t selectMajor = 0x01;
+constexpr uint8_t selectMinor = 0x02;
+constexpr uint8_t finishVersion = 0x03;
 constexpr uint8_t controlOpOffset = 0x10;
 constexpr uint8_t vfdBitmapSubcommand = 0x11;  // US ( f
 constexpr uint8_t vfdCursorCommand = 0x24;  // US $
@@ -463,7 +470,7 @@ bool receiveDrawing(uint8_t op, uint8_t token, uint32_t started) {
          drawNative(op, frame + 2, size);
 }
 
-uint8_t receiveRequest() {
+uint8_t receiveRequest(bool &versionReply) {
   uint32_t started = millis();
   int op;
   if (useSPI) {
@@ -486,6 +493,10 @@ uint8_t receiveRequest() {
     return 0;
   }
   const uint8_t reject = token | 0x80;
+  if (op == versionOp) {
+    versionReply = receiveValidCRC(op, token, frame, 0, started);
+    return versionReply ? token : reject;
+  }
   if (op == bitmapOp || op == textOp) {
     return receiveDrawing(op, token, started) ? token : reject;
   }
@@ -521,6 +532,34 @@ uint8_t receiveRequest() {
   servicePWM();
   return execute(op, control) ? token : reject;
 }
+// Poll tightly during a version reply. Read the selector before queuing
+// another byte so the remaining clocks flush any older transmit bytes.
+uint8_t serveVersionSPI(uint8_t status) {
+  const uint32_t started = millis();
+  uint8_t spin = 0;
+  for (;;) {
+    if (SPI0.INTFLAGS & SPI_RXCIF_bm) {
+      switch (SPI0.DATA) {
+        case selectMajor:
+          status = versionMajor;
+          break;
+        case selectMinor:
+          status = versionMinor;
+          break;
+        case finishVersion:
+          return readyByte;
+        case startByte:
+          return startByte;
+      }
+    }
+    if (SPI0.INTFLAGS & SPI_DREIF_bm) {
+      SPI0.DATA = status;
+    }
+    if (++spin == 0 && millis() - started >= 150) {
+      return 0;
+    }
+  }
+}
 }  // namespace
 
 void setup() {
@@ -544,12 +583,26 @@ void setup() {
 void loop() {
   static uint8_t status;
   const int value = useSPI ? pollSPI(status) : Serial.read();
-  if (value == startByte) {
-    status = receiveRequest();
-    if (!useSPI && status != 0) {
-      Serial.write(status);
-    }
+  if (value != startByte) {
+    servicePWM();
     return;
   }
-  servicePWM();
+
+  do {
+    bool versionReply = false;
+    status = receiveRequest(versionReply);
+    if (!useSPI) {
+      if (status != 0) {
+        Serial.write(status);
+      }
+      if (versionReply) {
+        Serial.write(versionMajor);
+        Serial.write(versionMinor);
+      }
+      return;
+    }
+    if (versionReply) {
+      status = serveVersionSPI(status);
+    }
+  } while (status == startByte);
 }

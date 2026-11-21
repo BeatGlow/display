@@ -116,6 +116,7 @@ present. The Nano keeps the CRC lookup table in flash.
 | `0x02` | 2,048 bytes | Publish a monochrome frame |
 | `0x03` | 3,328 bytes | Publish a three-level Gray3Level frame |
 | `0x04` | 4,096 bytes | Publish a four-level Gray2 frame |
+| `0x0F` | Empty | Read the Nano proxy protocol version |
 | `0x21` | 2-byte length + bitmap body | Draw a monochrome rectangle with `US ( f 11h` |
 | `0x34` | 2-byte length + text body | Position the cursor with `US $` (`0x24`) and draw text |
 | `0x50` | 0 or 1 | Display power, `US ( a 40h` |
@@ -292,6 +293,57 @@ arrive on the serial receive stream.
 Opening the serial port can reset the Nano. Retry the start marker after
 a read timeout while waiting for `FE`. Once ready, send the body once and
 wait for either result for the current token.
+
+### Protocol version query (`0x0F`)
+
+Send a request with an empty payload. Its CRC covers only the opcode
+and token. A successful query returns the normal acknowledgment
+followed by a big-endian unsigned 16-bit version. The first byte is
+the major version and the second is the minor version. The current
+version is 1.0 (`0x0100`). Change the major version when changing existing
+protocol rules or opcode meanings. Increment the minor version for
+compatible features within the same major version.
+
+Use `ProtocolVersion()` on `display.GU256X64D7000ProxyDisplay` to query
+either transport. It identifies the Nano proxy protocol. The VFD itself
+documents only a busy flag on parallel status reads.
+
+```text
+ USB CDC reply stream
+
++---------+------------+------------+
+|  token  |   major    |   minor    |
++---------+------------+------------+
+    0           1            2
+```
+
+Read the USB version bytes immediately after the acknowledgment. If
+the Nano rejects the request, it sends only the rejection status.
+
+For SPI, poll for the acknowledgment as usual. Then use these separate transactions to read the version and release the
+reply.
+
+```text
+ MOSI                      MISO
++-------------+           +-----------------+
+| 01 01 01 01 |---------->| xx xx xx major  |
++-------------+           +-----------------+
++-------------+           +-----------------+
+| 02 02 02 02 |---------->| xx xx xx minor  |
++-------------+           +-----------------+
++-------------+
+| 03          |---------->  release reply
++-------------+
++-------------+           +-----------------+
+| 00 00 00 00 |---------->| xx xx xx FE     |  release confirmed
++-------------+           +-----------------+
+```
+
+Ignore the first three MISO octets of each read. Repeat the final
+zero poll until the Nano confirms release with `FE`. If release times
+out, discard the version bytes. Skip these transactions after a request
+rejection. A new start marker can recover an abandoned read. The Nano
+resumes PWM service on release or timeout.
 
 ## Timing and bench checks
 

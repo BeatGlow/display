@@ -225,6 +225,53 @@ func TestGU256X64D7000ProxyRejectsInvalidDrawingsBeforeTransmission(t *testing.T
 	}
 }
 
+func TestGU256X64D7000ProxyReadsVersionWithoutConsumingTheNextReply(t *testing.T) {
+	for _, transport := range []string{"SPI", "USB"} {
+		t.Run(transport, func(t *testing.T) {
+			version := [2]byte{0xff, 0x80}
+			var (
+				link          proxyLink
+				port          io.Closer
+				packets       *[][]byte
+				rejectVersion func()
+			)
+			if transport == "SPI" {
+				bus := &testProxySPI{version: version}
+				link, port, packets = proxySPI{bus}, bus, &bus.packets
+				rejectVersion = func() { bus.rejectNext = true }
+			} else {
+				usb := &testProxyUSB{version: version, readLimit: 1}
+				link, port, packets = proxyUSB{usb}, usb, &usb.packets
+				rejectVersion = func() { usb.rejectVersion = true }
+			}
+			d, err := newGU256X64D7000Proxy(link, port, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := d.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+			proxy := d.(GU256X64D7000ProxyDisplay)
+			got, err := proxy.ProtocolVersion()
+			if err != nil || got != 0xff80 {
+				t.Fatalf("ProtocolVersion = 0x%04x, %v", got, err)
+			}
+			if len(*packets) != 3 || !bytes.Equal((*packets)[2], []byte{0xff, 0x0f, 3, 93, 64, 0}) {
+				t.Fatalf("version request must send the opcode and token with an empty payload and their CRC")
+			}
+			rejectVersion()
+			if _, err := proxy.ProtocolVersion(); !errors.Is(err, errProxyRejected) {
+				t.Fatalf("ProtocolVersion after rejection = %v, want a proxy rejection", err)
+			}
+			if err := d.SetContrast(255); err != nil {
+				t.Fatalf("SetContrast after querying the protocol version: %v", err)
+			}
+		})
+	}
+}
+
 func testProxyTransport(transport string) (proxyLink, io.Closer, *[][]byte) {
 	if transport == "SPI" {
 		bus := &testProxySPI{}
@@ -235,12 +282,15 @@ func testProxyTransport(transport string) (proxyLink, io.Closer, *[][]byte) {
 }
 
 type testProxyUSB struct {
-	packets      [][]byte
-	reply        []byte
-	closed       bool
-	missStart    bool
-	awaitingBody bool
-	processing   bool
+	version       [2]byte
+	readLimit     int
+	rejectVersion bool
+	packets       [][]byte
+	reply         []byte
+	closed        bool
+	missStart     bool
+	awaitingBody  bool
+	processing    bool
 }
 
 func (p *testProxyUSB) ResetInputBuffer() error {
@@ -264,6 +314,13 @@ func (p *testProxyUSB) Write(data []byte) (int, error) {
 	p.awaitingBody = false
 	p.packets = append(p.packets, append([]byte{0xff}, data...))
 	p.reply = []byte{0, data[1]}
+	if data[0] == 0x0f {
+		if p.rejectVersion {
+			p.reply[1] |= 0x80
+		} else {
+			p.reply = append(p.reply, p.version[:]...)
+		}
+	}
 	p.processing = true
 	return len(data), nil
 }
@@ -273,6 +330,9 @@ func (p *testProxyUSB) Read(reply []byte) (int, error) {
 		// A VFD write may take longer than one USB read timeout.
 		p.processing = false
 		return 0, nil
+	}
+	if p.readLimit > 0 {
+		reply = reply[:min(len(reply), p.readLimit)]
 	}
 	n := copy(reply, p.reply)
 	p.reply = p.reply[n:]
@@ -312,33 +372,53 @@ func TestGU256X64D7000ProxySPIReportsRejectionAndCanRefreshAgain(t *testing.T) {
 }
 
 type testProxySPI struct {
-	packets    [][]byte
-	packet     []byte
-	reserved   bool
-	ready      bool
-	reply      byte
-	remaining  int
-	rejectNext bool
-	dropNext   bool
+	version     [2]byte
+	versionStep byte
+	packets     [][]byte
+	packet      []byte
+	reserved    bool
+	ready       bool
+	reply       byte
+	remaining   int
+	rejectNext  bool
+	dropNext    bool
 }
 
 func (b *testProxySPI) Tx(w, r []byte) error {
 	switch {
 	case len(r) != 0:
-		if len(w) != 4 || len(r) != 4 || !bytes.Equal(w, []byte{0, 0, 0, 0}) {
+		if len(w) != 4 || len(r) != 4 || w[0] != w[1] || w[0] != w[2] || w[0] != w[3] {
 			return fmt.Errorf("invalid SPI status poll: %x", w)
 		}
-		if b.reserved && !b.ready {
+		if w[0] != 0 {
+			if b.versionStep == 0 || b.versionStep > 2 || w[0] != b.versionStep {
+				return fmt.Errorf("unexpected SPI version selector: %x", w)
+			}
+			copy(r, []byte{0xfe, b.reply, 0x00, b.version[b.versionStep-1]})
+			b.versionStep++
+			return nil
+		}
+		if b.versionStep == 4 {
+			b.versionStep = 0
+			r[3] = 0xfe
+		} else if b.reserved && !b.ready {
 			b.ready = true
 			r[3] = 0xfe
 		} else {
 			r[3] = b.reply
 		}
+	case bytes.Equal(w, []byte{3}) && b.versionStep == 3:
+		b.versionStep = 4
 	case bytes.Equal(w, []byte{0xff}):
+		if b.versionStep != 0 {
+			return errors.New("new SPI request arrived before the version response ended")
+		}
 		b.reserved, b.ready = true, false
 	case b.ready:
 		if b.remaining == 0 {
 			switch w[0] {
+			case 0x0f:
+				b.remaining = 5
 			case 0x50, 0x68:
 				b.remaining = 6
 			case 0x04:
@@ -375,6 +455,9 @@ func (b *testProxySPI) Tx(w, r []byte) error {
 		if b.dropNext {
 			b.reply = 0
 			b.dropNext = false
+		}
+		if b.packet[1] == 0x0f && b.reply == b.packet[2] {
+			b.versionStep = 1
 		}
 	default:
 		return errors.New("SPI request arrived before the proxy signaled ready")
