@@ -114,15 +114,24 @@ current bank stays visible until the next valid frame restores PWM.
 
 ## Timing and bench checks
 
-At 2 MHz, the payload takes about 8.2 ms for monochrome, 13.3 ms for
-Gray3Level, and 16.4 ms for Gray2. Monochrome needs one 2,048-byte VFD
-bitmap write. Three-level gray needs two bitmap writes per update. Four-level
-gray needs a bitmap write for each distinct phase, including between host
-updates. PBUSY latency on the panel determines the achievable rate. Near 20 fps
-is the SPI target. At 1 Mbaud, a monochrome USB request takes about 20.5 ms
-and Gray3Level and Gray2 take about 33.3 ms and 41 ms respectively on the UART,
-before USB buffering,
-the ready handshake, and the VFD writes. Arduino documents 1 Mbit/s for the
+The estimates below count host frame acknowledgments for 256×64 updates.
+They combine payload transfer time with the 16 MHz MPLAB X benchmark
+cycles for CRC, bitmap writes, and frame publication.
+
+| Pixel format | Payload | SPI at 2 MHz | USB CDC at 1 Mbaud, 8N1 |
+| --- | ---: | ---: | ---: |
+| Mono | 2,048 bytes | 62.1 fps (16.09 ms) | 35.2 fps (28.38 ms) |
+| Gray3Level (3 levels) | 3,328 bytes | 24.4 fps (40.97 ms) | 16.4 fps (60.94 ms) |
+| Gray2 (4 levels) | 4,096 bytes | 33.0 fps (30.30 ms) | 18.2 fps (54.88 ms) |
+
+The benchmark measures an initialized proxy with PBUSY held ready and
+grayscale lookup tables already built. Panel busy time, the protocol
+handshake, host scheduling, and USB bridge buffering add latency on hardware.
+Gray3Level writes two bitmaps for a frame containing gray pixels. Gray2
+publishes the first mask, then prepares later PWM masks between updates.
+The next Gray2 mask takes about 8 ms of simulator CPU time after
+acknowledgment, so sustained update rates can be lower than this table.
+Near 20 fps remains the SPI target. Arduino documents 1 Mbit/s for the
 stock Nano Every bridge.
 [Arduino Nano Every serial ports](https://docs.arduino.cc/tutorials/nano-every/getting-started/#serial-ports-on-the-arduino-nano-every)
 
