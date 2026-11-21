@@ -49,9 +49,15 @@ USB CDC and connect the Nano's USB port to the host.
 
 ```sh
 arduino-cli core install arduino:megaavr
-arduino-cli compile --fqbn arduino:megaavr:nona4809:mode=off support/gu256x64d7000_proxy
-arduino-cli upload --fqbn arduino:megaavr:nona4809:mode=off -p /dev/ttyACM0 support/gu256x64d7000_proxy
+arduino-cli compile --fqbn arduino:megaavr:nona4809:mode=off \
+  --library support/arduino/GU256X64D7000 support/gu256x64d7000_proxy
+arduino-cli compile --upload --fqbn arduino:megaavr:nona4809:mode=off \
+  --library support/arduino/GU256X64D7000 -p /dev/ttyACM0 support/gu256x64d7000_proxy
 ```
+
+The proxy uses the [GU256X64D7000 Arduino library](../arduino/GU256X64D7000/README.md)
+for parallel I/O. The library also supports standalone ATmega4809 sketches
+with custom wiring.
 
 Use `display.OpenGU256X64D7000ProxySPI("/dev/spidev0.0", nil)` or
 `display.OpenGU256X64D7000ProxyUSB("/dev/ttyACM0", nil)` for the default
@@ -206,7 +212,7 @@ multiples of eight. On the wire, one band is eight vertical pixels.
 +--------+--------+--------+--------+--------+--------+--------+------+
 | Len lo | Len hi |   X    | Y band |Width lo|Width hi| Height | Data |
 +--------+--------+--------+--------+--------+--------+--------+------+
-                  |<---------------- Len octets -------------------->|
+                  |<------------------- Len octets ------------------>|
 ```
 
 Width counts columns and height counts bands. Both must be positive,
@@ -223,7 +229,7 @@ The Go method converts source colors with `pixel.MonoModel`.
 +--------+--------+--------+--------+-------------------+
 | Len lo | Len hi |   X    | Y band |  ASCII characters |
 +--------+--------+--------+--------+-------------------+
-                  |<----------- Len octets ------------>|
+                  |<------------ Len octets ----------->|
 ```
 
 `Len = 2 + character count`. Send at least one printable ASCII character

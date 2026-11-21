@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <GU256X64D7000.h>
 #include "xmodem_crc.h"
 
 #if !defined(ARDUINO_AVR_NANO_EVERY)
@@ -41,6 +42,9 @@ uint8_t maskFormat;
 enum class Bitmap : uint8_t { Mono, Gray3Lit, Gray3Full, Lit, HighBit, Full };
 constexpr Bitmap gray2Bitmaps[] = {Bitmap::Lit, Bitmap::HighBit, Bitmap::Full};
 
+using VFD = gu256x64d7000::Display<>;
+constexpr VFD vfd{};
+
 bool useSPI;
 bool vfdReady;
 bool visible = true;
@@ -53,50 +57,30 @@ bool gray2FrameValid;
 bool gray2NextReady;
 
 bool waitBusyVFD() {
-  // Poll briefly before using millis() for the timeout.
-  uint8_t spin = 0;
-  while (VPORTF.IN & PIN4_bm) {
-    if (++spin == 0) {
-      const uint32_t started = millis();
-      while (VPORTF.IN & PIN4_bm) {
-        if (millis() - started >= 120) {
-          vfdReady = false;
-          return false;
-        }
-      }
-      break;
-    }
+  if (vfd.waitWhileBusy()) {
+    return true;
   }
-  return true;
+  vfdReady = false;
+  return false;
 }
 
 inline bool waitVFD() {
-  return !(VPORTF.IN & PIN4_bm) || waitBusyVFD();
-}
-
-inline __attribute__((always_inline)) void strobeVFD(uint8_t value, uint8_t portD, uint8_t portB) {
-  // VFD D0..5 = PD0..5 and VFD D6..7 = PB0..1.
-  VPORTD.OUT = portD | (value & 0x3f);
-  VPORTB.OUT = portB | (value >> 6);
-  VPORTC.OUT &= ~PIN6_bm;  // /WR (D4)
-  asm volatile("nop\n\tnop" ::: "memory");
-  VPORTC.OUT |= PIN6_bm;
-  asm volatile("nop\n\tnop" ::: "memory");
+  return !vfd.busy() || waitBusyVFD();
 }
 
 inline __attribute__((always_inline)) bool writeVFD(uint8_t value) {
   if (!waitVFD()) {
     return false;
   }
-  strobeVFD(value, VPORTD.OUT & 0xc0, VPORTB.OUT & 0xfc);
+  vfd.writeReady(value, vfd.captureLatches());
   return true;
 }
 
-inline __attribute__((always_inline)) bool writeBitmapByte(uint8_t value, uint8_t portD, uint8_t portB) {
+inline __attribute__((always_inline)) bool writeBitmapByte(uint8_t value, VFD::Latches latches) {
   if (!waitVFD()) {
     return false;
   }
-  strobeVFD(value, portD, portB);
+  vfd.writeReady(value, latches);
   return true;
 }
 
@@ -124,10 +108,7 @@ bool initVFD() {
   pwmPhase = 0;
   gray2FrameValid = false;
   gray2NextReady = false;
-  VPORTA.OUT &= ~PIN0_bm;  // /RESET (D2)
-  delay(2);
-  VPORTA.OUT |= PIN0_bm;
-  delay(1);
+  vfd.reset();
   vfdReady = command<3>({0x1b, 0x40, 0x0c}) &&
              command<5>({0x1f, 0x28, 0x77, 0x10, 1}) &&  // Write across both banks.
              setBrightness(brightness) && setPower(visible);
@@ -170,22 +151,22 @@ void prepareMasks(uint8_t format) {
 
 template <bool FullGroup>
 inline __attribute__((always_inline)) bool writeGray3Group(
-    const uint8_t *src, const uint8_t *mask, uint8_t portD, uint8_t portB) {
+    const uint8_t *src, const uint8_t *mask, VFD::Latches latches) {
   const uint8_t a = mask[src[0]], b = mask[src[1]], c = mask[src[2]];
   const uint8_t d = mask[src[3]], e = mask[src[4]];
   // Five base-3 digits decode to five vertical mask bits. The first
   // five groups contribute 24 bits, with one bit carried into byte four.
-  if (!writeBitmapByte((a << 3) | (b >> 2), portD, portB) ||
-      !writeBitmapByte((b << 6) | (c << 1) | (d >> 4), portD, portB) ||
-      !writeBitmapByte((d << 4) | (e >> 1), portD, portB)) {
+  if (!writeBitmapByte((a << 3) | (b >> 2), latches) ||
+      !writeBitmapByte((b << 6) | (c << 1) | (d >> 4), latches) ||
+      !writeBitmapByte((d << 4) | (e >> 1), latches)) {
     return false;
   }
   if (!FullGroup) {
     return true;  // The 25th bit is padding in the last group of the column.
   }
   const uint8_t f = mask[src[5]], g = mask[src[6]], h = mask[src[7]];
-  return writeBitmapByte((e << 7) | (f << 2) | (g >> 3), portD, portB) &&
-         writeBitmapByte((g << 5) | h, portD, portB);
+  return writeBitmapByte((e << 7) | (f << 2) | (g >> 3), latches) &&
+         writeBitmapByte((g << 5) | h, latches);
 }
 
 bool writeBank(uint8_t bank, Bitmap bitmap) {
@@ -194,19 +175,18 @@ bool writeBank(uint8_t bank, Bitmap bitmap) {
     return false;
   }
   // No other code writes these latches during the bitmap transfer.
-  const uint8_t portD = VPORTD.OUT & 0xc0;
-  const uint8_t portB = VPORTB.OUT & 0xfc;
+  const auto latches = vfd.captureLatches();
   if (bitmap == Bitmap::Mono) {
     for (uint16_t i = 0; i < monoSize; ++i) {
-      if (!writeBitmapByte(frame[i], portD, portB)) {
+      if (!writeBitmapByte(frame[i], latches)) {
         return false;
       }
     }
   } else if (bitmap == Bitmap::Gray3Lit || bitmap == Bitmap::Gray3Full) {
     const uint8_t *mask = bitmap == Bitmap::Gray3Full ? fullPixels : litPixels;
     for (const uint8_t *column = frame; column != frame + gray3Size; column += gray3Column) {
-      if (!writeGray3Group<true>(column, mask, portD, portB) ||
-          !writeGray3Group<false>(column + 8, mask, portD, portB)) {
+      if (!writeGray3Group<true>(column, mask, latches) ||
+          !writeGray3Group<false>(column + 8, mask, latches)) {
         return false;
       }
     }
@@ -214,7 +194,7 @@ bool writeBank(uint8_t bank, Bitmap bitmap) {
     const uint8_t *mask = bitmap == Bitmap::Full ? fullPixels : litPixels;
     const uint8_t bits = bitmap == Bitmap::HighBit ? 0xaa : 0xff;
     for (uint16_t i = 0; i < gray2Size; i += 2) {
-      if (!writeBitmapByte((mask[frame[i] & bits] << 4) | mask[frame[i + 1] & bits], portD, portB)) {
+      if (!writeBitmapByte((mask[frame[i] & bits] << 4) | mask[frame[i + 1] & bits], latches)) {
         return false;
       }
     }
@@ -363,10 +343,9 @@ bool drawNative(uint8_t op, const uint8_t *payload, uint16_t size) {
                             uint8_t(columns), uint8_t(columns >> 8), bands, 0, 1})) {
     return false;
   }
-  const uint8_t portD = VPORTD.OUT & 0xc0;
-  const uint8_t portB = VPORTB.OUT & 0xfc;
+  const auto latches = vfd.captureLatches();
   for (uint16_t i = 0; i < count; ++i) {
-    if (!writeBitmapByte(data[i], portD, portB)) {
+    if (!writeBitmapByte(data[i], latches)) {
       return false;
     }
   }
@@ -545,14 +524,7 @@ uint8_t receiveRequest() {
 }  // namespace
 
 void setup() {
-  // Hold /WR and /RESET high before enabling their outputs.
-  VPORTC.OUT |= PIN6_bm;
-  VPORTC.DIR |= PIN6_bm;
-  VPORTA.OUT |= PIN0_bm;
-  VPORTA.DIR |= PIN0_bm;
-  VPORTD.DIR |= 0x3f;
-  VPORTB.DIR |= PIN0_bm | PIN1_bm;
-  PORTF.PIN4CTRL = PORT_PULLUPEN_bm;  // Disconnected PBUSY reads busy.
+  vfd.begin();
   pinMode(7, INPUT_PULLUP);
   useSPI = digitalRead(7) == LOW;
 

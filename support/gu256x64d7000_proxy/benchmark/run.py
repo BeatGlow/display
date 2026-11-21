@@ -87,12 +87,13 @@ def main():
     work = args.work_dir.resolve()
     work.mkdir(parents=True, exist_ok=True)
     source = Path(__file__).resolve().parent
+    library = source.parents[1] / "arduino" / "GU256X64D7000" / "src"
     fixture(work / "fixture.h")
     elf = work / "bench.elf"
     env = os.environ.copy()
     subprocess.run([
         str(args.avr_cxx.resolve()), "-mmcu=atmega4809", "-Os", "-g", "-std=gnu++11",
-        "-DARDUINO_AVR_NANO_EVERY", "-I", str(source), "-I", str(work),
+        "-DARDUINO_AVR_NANO_EVERY", "-I", str(source), "-I", str(work), "-I", str(library),
         str(source / "bench.cpp"), "-o", str(elf),
     ], cwd=work, env=env, check=True)
     commands = work / "bench.mdb"
