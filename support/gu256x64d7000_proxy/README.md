@@ -1,9 +1,8 @@
 # GU256X64D-7000 Nano Every proxy
 
 The Go driver sends monochrome, three-level, or four-level frames over 2 MHz
-SPI or USB CDC. The Nano Every writes the VFD through its 8-bit parallel
-interface. For grayscale it switches the visible VFD memory bank at each
-phase that needs a different mask.
+SPI or USB CDC. The Nano Every drives the VFD over its 8-bit parallel
+interface and switches the visible memory bank when the PWM mask changes.
 
 | Go framebuffer | Pixel levels | Nominal duty cycles | PWM phase lengths |
 | --- | --- | --- | --- |
@@ -11,21 +10,21 @@ phase that needs a different mask.
 | `pixel.Gray3LevelImage` | 0, 1, 2 | 0%, 50%, 100% | 14 ms, 7 ms, 7 ms |
 | `pixel.Gray2Image` | 0, 1, 2, 3 | 0%, 33⅓%, 66⅔%, 100% | 14 ms each |
 
-In three-level mode, gray lights during the first phase, and the last two
-phases share the white-only mask. Four-level mode generates three distinct
-masks from one packed framebuffer and loads each upcoming mask into the
-hidden bank. White stays lit in every phase in either mode. A frame
-containing only black and white needs one bank write and no PWM.
+Three-level mode lights gray pixels during the first phase. The last two
+phases share the white-only mask. Four-level mode generates three masks
+from one packed framebuffer and loads the next mask into the hidden bank.
+White stays lit in every phase. A black-and-white frame needs a single
+bank write and runs without PWM.
 
 ## Wiring
 
 Set **JRB C–B** on the VFD so parallel pin 3 exposes PBUSY. Use the reset pin on
 CN2. Tie the VFD's /RD input high for write-only operation and leave RS open.
-Fit a pull-up to the VFD's 5 V on /WR and /RESET to keep them inactive while the
-Nano boots. Use a regulated 5 V VFD supply rated for the module's startup surge,
-with a shared ground. The VFD is specified for 4.75–5.25 V and draws up to
-950 mA steady state at full output. Feed the VFD directly from its supply and
-keep both sides powered while the parallel signals are driven.
+Pull /WR and /RESET up to the VFD's 5 V so they stay inactive while the
+Nano boots. Power the VFD directly from a regulated 5 V supply that can
+handle its startup surge. Its operating range is 4.75 to 5.25 V, and it
+draws up to 950 mA at full output in steady state. Share ground with the
+Nano and keep both devices powered while the parallel signals are active.
 [Noritake GU256X64D-7000 specification](https://noritake-itron.com/site2017/images/Specs/VFD/CDG/GU256x64D-7000x/gu256x64d-7000_e01-c5.pdf)
 
 | VFD signal | VFD connector pin | Nano Every |
@@ -59,8 +58,8 @@ Use `display.OpenGU256X64D7000ProxySPI("/dev/spidev0.0", nil)` or
 three-level mode. Pass `&display.GU256X64D7000ProxyConfig{GrayLevels: 4}`
 for four levels or
 `&display.GU256X64D7000ProxyConfig{Config: display.Config{UseMono: true}}`
-for 1-bit frames. The returned `display.Display` owns its connection
-and supports software rotation, `Show`, and `SetContrast`.
+for 1-bit frames. The returned `display.Display` owns the connection.
+It supports software rotation, `Show`, and `SetContrast`.
 
 ```sh
 go run ./cmd/display-test -contrast 224 proxy-spi gu256x64d7000
@@ -71,11 +70,38 @@ go run ./cmd/display-test -uart-port /dev/ttyACM0 proxy-usb gu256x64d7000
 
 ## Protocol
 
-SPI is mode 0, MSB first, at 2 MHz. USB CDC uses the stock Nano Every
-bridge at 1,000,000 baud, 8N1. Each request starts with `ff`, followed by an opcode, a token
-(1–125), the payload, and a three-byte CRC. The CRC is CRC-16/XMODEM over the
-opcode, token, and payload, with initial value zero. Transmit CRC bits 0–6,
-7–13, and 14–15 in that order. The Nano keeps the CRC lookup table in flash.
+### Request format
+
+Both transports use the same request bytes. Send the start marker first
+and wait for the Nano to report ready before sending the body.
+
+```text
+Octet offset
+    0       1       2          3          N+3     N+4     N+5
++-------+-------+-------+--------------+-------+-------+-------+
+|   FF  | Opcode| Token |   Payload    |  CRC0 |  CRC1 |  CRC2 |
++-------+-------+-------+--------------+-------+-------+-------+
+        |<------------------- request body ------------------->|
+                        |<- N octets ->|
+        |<-------- CRC input --------->|
+```
+
+Use a token from 1 through 125. The opcode determines the payload length
+`N`. Compute CRC-16/XMODEM with initial value zero over the opcode, token,
+and payload. The Nano keeps the CRC lookup table in flash.
+
+```text
+              7 6 5 4 3 2 1 0
+             +-+-+-+-+-+-+-+-+
+ CRC0        |-|6|5|4|3|2|1|0|
+             +-+-+-+-+-+-+-+-+
+ CRC1        |-|D|C|B|A|9|8|7|
+             +-+-+-+-+-+-+-+-+
+ CRC2        |-|-|-|-|-|-|F|E|
+             +-+-+-+-+-+-+-+-+
+ A hex digit labels a bit of the 16-bit CRC.
+ A dash marks a bit that is set to zero.
+```
 
 | Opcode | Payload | VFD action |
 | --- | --- | --- |
@@ -85,42 +111,138 @@ opcode, token, and payload, with initial value zero. Transmit CRC bits 0–6,
 | `0x50` | 0 or 1 | Display power, `US ( a 40h` |
 | `0x68` | Level 1–8 | Global brightness, `US X` (`0x58`) |
 
-Control opcodes use the range starting at `0x10`. Each is the VFD command
-byte plus `0x10`. For a grouped VFD command such as display power, use the
-subcommand byte.
-
-Every frame is 256×64 and stored column by column.
-
-- A monochrome byte contains eight vertical pixels, with the top pixel in bit 7.
-- A Gray2 byte contains four vertical pixels, with the top pixel in bits 1–0.
-- A Gray3Level byte contains five vertical pixels as base-3 digits, with the
-  top pixel as the least significant digit. Each column is 13 bytes. The final
-  byte of each column contains four pixels and a zero fifth digit. The firmware
-  rejects byte values above 242 and final column bytes above 80. It expands each
-  group of pixels using fixed shifts and a shared mask lookup in RAM.
+Control opcodes start at `0x10`. Add `0x10` to the VFD command byte. For
+a grouped command such as display power, add it to the subcommand byte.
 
 Update the firmware and Go driver together when upgrading from an earlier
 proxy opcode map.
 
-On SPI, send the start marker in its own transaction, then poll with four
-zero bytes per transaction until the fourth received byte is `fe`. Send the
-rest of the request in transactions of at most 4,096 bytes, without sending
-another start marker or polling between chunks. Then poll with four zero
-bytes until the fourth received byte matches the token (success) or token OR
-`80` (rejected). On USB, send the start marker and wait for a single `fe`
-ready byte before sending the rest of the request. The Nano then sends the
-same one-byte success or rejection reply. If opening CDC resets the Nano,
-retry the start marker until the ready byte arrives. Send the next request
-after the current reply. A new start marker can synchronize the next request
-after an incomplete request times out.
-If an invalid frame overwrites the Nano’s packed four-level buffer, the
-current bank stays visible until the next valid frame restores PWM.
+### Framebuffer payloads
+
+Send the 256 columns from left to right. Within each column, send the
+byte groups from top to bottom across all 64 rows.
+
+```text
+                 increasing payload offset -->
++-------------+-------------+-----+-------------+
+|  column 0   |  column 1   | ... | column 255  |
++-------------+-------------+-----+-------------+
+```
+
+`p0` is the top pixel in each group. The other pixels follow down the
+same column. Bit 7 is on the left.
+
+#### Mono (`0x02`)
+
+Pack eight pixels per octet and eight octets per column. The first octet
+covers rows 0 through 7. A group with only its top pixel lit encodes as `0x80`.
+
+```text
+  7   6   5   4   3   2   1   0
++---+---+---+---+---+---+---+---+
+|p0 |p1 |p2 |p3 |p4 |p5 |p6 |p7 |
++---+---+---+---+---+---+---+---+
+```
+
+#### Gray3Level (`0x03`)
+
+Pack five base-3 digits per octet and 13 octets per column. A pixel value
+of 0 is off, 1 is half brightness, and 2 is full brightness. Store the
+weighted sum as an unsigned octet.
+
+```text
+  base-3 weights, most significant digit on the left
++------+------+------+------+------+
+| 81*p4| 27*p3|  9*p2|  3*p1|    p0|
++------+------+------+------+------+
+      add the five terms to form B
+
+  7   6   5   4   3   2   1   0
++---+---+---+---+---+---+---+---+
+| 1 | 1 | 0 | 1 | 0 | 0 | 1 | 0 |  B = 0xD2
++---+---+---+---+---+---+---+---+
+  example pixels (p0..p4) = (0, 1, 2, 1, 2)
+```
+
+The first 12 octets cover rows 0 through 59 and can hold values up to 242.
+The last covers rows 60 through 63. Set `p4 = 0` to keep its value at or
+below 80. The firmware checks both limits and expands each group with
+fixed shifts and a shared lookup table in RAM.
+
+#### Gray2 (`0x04`)
+
+Pack four two-bit pixels per octet and 16 octets per column. The first
+octet covers rows 0 through 3. Each pixel has a value from 0 to 3. Pixels
+`(p0, p1, p2, p3) = (0, 1, 2, 3)` encode as `0xE4`.
+
+```text
+  7   6   5   4   3   2   1   0
++-------+-------+-------+-------+
+|  p3   |  p2   |  p1   |  p0   |
++-------+-------+-------+-------+
+```
+
+### Request exchange
+
+The Nano returns the token on success or sets bit 7 (`token | 0x80`) on
+rejection. Wait for that reply before starting another request. If a
+partial request times out, send a fresh start marker to resynchronize.
+
+If an invalid frame overwrites the packed four-level buffer, the Nano
+keeps the current bank visible until another valid frame restores PWM.
+
+#### SPI
+
+Use mode 0 at 2 MHz and send the most significant bit first. Assert CS
+for each MOSI transfer. During a poll, MOSI and MISO travel at the same time.
+
+```text
+ Host (controller)                                  Nano (peripheral)
+       |                                                     |
+       |--- MOSI: FF --------------------------------------->|
+       |                                                     |
+       |--- MOSI: 00 00 00 00 ------------------------------>|
+       |<-- MISO: xx xx xx FE -------------------------------|  ready
+       |                                                     |
+       |--- MOSI: opcode, token, payload, CRC -------------->|
+       |           (one or more transactions)                |
+       |                                                     |
+       |--- MOSI: 00 00 00 00 ------------------------------>|
+       |<-- MISO: xx xx xx status ---------------------------|  result
+       |                                                     |
+       v                                                     v
+```
+
+Repeat the four-octet poll until the fourth MISO octet reports ready,
+success, or rejection as appropriate. Ignore the first three MISO octets
+(`xx`), and ignore MISO during the start and body transfers. Send the body
+in transactions of up to 4,096 octets, with no polls between them.
+
+#### USB CDC
+
+Use the stock Nano Every bridge at 1,000,000 baud, 8N1. Status bytes
+arrive on the serial receive stream.
+
+```text
+ Host                                               Nano (USB CDC)
+   |                                                       |
+   |--- FF ----------------------------------------------->|
+   |<-- FE ------------------------------------------------|  ready
+   |--- opcode, token, payload, CRC ---------------------->|
+   |<-- status --------------------------------------------|  result
+   |                                                       |
+   v                                                       v
+```
+
+Opening the serial port can reset the Nano. Retry the start marker after
+a read timeout while waiting for `FE`. Once ready, send the body once and
+wait for either result for the current token.
 
 ## Timing and bench checks
 
-The estimates below count host frame acknowledgments for 256×64 updates.
-They combine payload transfer time with the 16 MHz MPLAB X benchmark
-cycles for CRC, bitmap writes, and frame publication.
+Estimated rates count acknowledgments for 256×64 updates. They add
+payload transfer time to the CRC and frame publication time measured in
+MPLAB X at 16 MHz.
 
 | Pixel format | Payload | SPI at 2 MHz | USB CDC at 1 Mbaud, 8N1 |
 | --- | ---: | ---: | ---: |
@@ -133,25 +255,24 @@ grayscale lookup tables already built. Panel busy time, the protocol
 handshake, host scheduling, and USB bridge buffering add latency on hardware.
 Gray3Level writes two bitmaps for a frame containing gray pixels. Gray2
 publishes the first mask, then prepares later PWM masks between updates.
-The next Gray2 mask takes about 8 ms of simulator CPU time after
-acknowledgment, so sustained update rates can be lower than this table.
-Near 20 fps remains the SPI target. Arduino documents 1 Mbit/s for the
+Preparing the next Gray2 mask takes about 8 ms of simulated CPU time
+after acknowledgment and can lower the sustained rate. The SPI target is
+about 20 fps. Arduino documents 1 Mbit/s for the
 stock Nano Every bridge.
 [Arduino Nano Every serial ports](https://docs.arduino.cc/tutorials/nano-every/getting-started/#serial-ports-on-the-arduino-nano-every)
 
-Measure frame acknowledgments with the SPI demo and check for about 20 completed
-updates per second. With a logic analyzer on /WR, PBUSY, SCK, and CS, confirm
-that the Nano waits for PBUSY and that each transaction completes within the
-frame budget. Verify the duty cycles on solid patches in each grayscale mode.
-During animation, SPI bursts and bank uploads can lengthen a phase. The visible
-PWM, flicker, and achieved frame rate require a bench measurement.
+Count acknowledgments with the SPI demo to measure completed updates.
+Probe /WR, PBUSY, SCK, and CS with a logic analyzer to check that the Nano
+waits for PBUSY and that transfers fit the frame budget. Check the PWM
+duty cycles on solid patches in each grayscale mode and watch for flicker
+during animation. SPI transfers and bank writes can lengthen a phase.
 
 ## MPLAB X benchmark
 
-The [benchmark](benchmark/run.py) builds the production sketch for the
-ATmega4809 and uses the MDB simulator stopwatch at 16 MHz. Pass the paths to your
-MPLAB X `mdb.sh` and Arduino megaAVR `avr-g++`, and choose a scratch directory
-for the generated fixtures, ELF, command file, and simulator log.
+The [benchmark](benchmark/run.py) builds the ATmega4809 sketch and times
+it with the MDB simulator at 16 MHz. Supply the paths to MPLAB X `mdb.sh`
+and Arduino megaAVR `avr-g++`. The scratch directory holds the fixtures,
+ELF, MDB command file, and simulator log.
 
 ```sh
 python3 support/gu256x64d7000_proxy/benchmark/run.py \
@@ -160,8 +281,8 @@ python3 support/gu256x64d7000_proxy/benchmark/run.py \
   --work-dir /path/to/scratch/gu256x64d7000-benchmark
 ```
 
-The benchmark checks CRC against the AVR library reference and exercises
-rejection of invalid Gray3Level digits and column padding. It reports work through the frame acknowledgment separately from preparing
-the next Gray2 PWM mask. The
-totals add payload wire time to measured CPU cycles with PBUSY held ready.
-Measure handshake, bridge latency, and VFD busy timing on the physical setup.
+The benchmark checks CRC against the AVR library and tests rejection of
+invalid Gray3Level digits and column padding. It times the work through
+acknowledgment and reports the next Gray2 PWM mask separately. The totals
+add payload wire time to the simulated CPU time with PBUSY held ready.
+Measure handshake, bridge latency, and VFD busy timing on the hardware.
