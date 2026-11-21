@@ -158,7 +158,7 @@ func TestRecordingConnectionAndVirtualDisplays(t *testing.T) {
 		t.Fatalf("recorded traffic = %#v; counts commands=%d bytes=%d", c.events, c.commands, c.dataBytes)
 	}
 
-	for _, model := range []string{"mono", "gray2", "gray4", "rgb15", "rgb16", "yu12"} {
+	for _, model := range []string{"mono", "gray2", "gray3level", "gray4", "rgb15", "rgb16", "yu12"} {
 		t.Run(model, func(t *testing.T) {
 			d, err := newVirtualDisplay(4, 3, model)
 			if err != nil {
@@ -167,6 +167,13 @@ func TestRecordingConnectionAndVirtualDisplays(t *testing.T) {
 			d.Fill(color.White)
 			if d.Bounds() != image.Rect(0, 0, 4, 3) || d.ColorModel() == nil || d.String() == "" {
 				t.Fatalf("virtual display metadata invalid: bounds=%v model=%v name=%q", d.Bounds(), d.ColorModel(), d.String())
+			}
+			if model == "gray3level" {
+				d.Set(1, 1, color.Gray{Y: 128})
+				gray := color.Gray16Model.Convert(d.At(1, 1)).(color.Gray16)
+				if gray.Y != 0x8000 {
+					t.Fatalf("half-gray virtual pixel = %#04x, want 0x8000", gray.Y)
+				}
 			}
 			if d.At(1, 1) == nil {
 				t.Fatal("At returned nil color")

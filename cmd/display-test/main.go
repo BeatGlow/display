@@ -36,7 +36,7 @@ func main() {
 	cePinFlag := flag.String("ce", "GPIO8", "Chip enable GPIO pin")
 	blPinFlag := flag.String("bl", "GPIO19", "Backlight GPIO pin")
 	rotateFlag := flag.String("rotate", "", "Display rotation")
-	colorFlag := flag.String("color", "mono", "Offline virtual display color model: mono, gray2, gray4, rgb15, rgb16, yu12")
+	colorFlag := flag.String("color", "mono", "Offline virtual display color model: mono, gray2, gray3level, gray4, rgb15, rgb16, yu12")
 	outputFlag := flag.String("output", "display.png", "Offline preview PNG path")
 	traceFlag := flag.String("trace", "display.trace.json", "Offline command/data trace path")
 	contrastFlag := flag.Int("contrast", -1, "Set contrast/brightness for offline checks or the Nano Every proxy (0-255)")
@@ -289,6 +289,8 @@ func main() {
 					} else {
 						output.Set(x, y, pixel.Off)
 					}
+				case pixel.Gray3LevelModel:
+					output.Set(x, y, pixel.Gray3Level{Y: uint8((x + y + offset) / 4 % 3)})
 				case pixel.Gray2Model:
 					output.Set(x, y, pixel.Gray4{Y: uint8(x+y+offset) & 0x3})
 				case pixel.Gray4Model:
