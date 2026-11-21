@@ -50,14 +50,15 @@ USB CDC and connect the Nano's USB port to the host.
 After cloning the display repository, fetch the pinned library submodule.
 
 ```sh
-git submodule update --init -- support/gu256x64d7000_proxy/src/GU256X64D7000
+git submodule update --init -- support/gu256x64d7000_proxy/data/GU256X64D7000
 ```
 
 In Arduino IDE, install **Arduino megaAVR Boards** and open
 `support/gu256x64d7000_proxy/gu256x64d7000_proxy.ino`. Select **Arduino Nano
 Every** and set **Registers emulation** to **None (ATMEGA4809)**.
 Use **Verify** to build or select a port and use **Upload**. The sketch
-includes the pinned library from its own `src` directory.
+includes the pinned library from its `data` directory, which keeps the
+library's host tests out of the Arduino build.
 
 ```sh
 arduino-cli core install arduino:megaavr

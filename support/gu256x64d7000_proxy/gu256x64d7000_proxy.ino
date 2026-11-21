@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#include "src/GU256X64D7000/src/GU256X64D7000.h"
+#include "data/GU256X64D7000/src/GU256X64D7000.h"
 #include "xmodem_crc.h"
 
 #if !defined(ARDUINO_AVR_NANO_EVERY)
