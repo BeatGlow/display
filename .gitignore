@@ -40,3 +40,4 @@
 !/support/arduino/GU256X64D7000/library.properties
 !/support/arduino/GU256X64D7000/src/GU256X64D7000.h
 !/support/arduino/GU256X64D7000/examples/HelloVFD/HelloVFD.ino
+!/support/arduino/GU256X64D7000/examples/BitmapVFD/BitmapVFD.ino

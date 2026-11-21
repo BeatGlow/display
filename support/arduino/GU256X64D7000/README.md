@@ -13,8 +13,12 @@ Copy this `GU256X64D7000` folder into the Arduino sketchbook's
 Arduino IDE can install that ZIP using **Sketch > Include Library > Add
 .ZIP Library**.
 
-Open the `HelloVFD` example. It resets the panel, clears the display,
-and writes text using the built-in font.
+Arduino IDE lists these sketches under the library's examples.
+
+- [HelloVFD](examples/HelloVFD/HelloVFD.ino) clears the display and writes
+  built-in text. It includes alternate wiring for the Uno WiFi Rev2.
+- [BitmapVFD](examples/BitmapVFD/BitmapVFD.ino) draws a centered 16×16 bitmap
+  with Nano Every wiring. For another board, substitute its wiring type.
 
 ## Set the wiring
 
