@@ -152,6 +152,7 @@ func TestSIMDRotationHandlersDoNotAllocateAfterWarmup(t *testing.T) {
 	packed := make([]byte, width*height*4)
 	for _, r := range []display.Rotation{display.Rotate90, display.Rotate180, display.Rotate270} {
 		logical := image.NewRGBA(rotation.Bounds(image.Rect(0, 0, width, height), r))
+		packedStride := logical.Bounds().Dx() * xrgbBytesPerPixel
 		scratch := make([]byte, width*height*4)
 		row := make([]byte, width*4)
 		t.Run(r.String(), func(t *testing.T) {
@@ -163,11 +164,11 @@ func TestSIMDRotationHandlersDoNotAllocateAfterWarmup(t *testing.T) {
 			runPacked := func() {
 				switch r {
 				case display.Rotate90:
-					rotateXRGB90(dst, width*4, packed, width*4, width, height)
+					rotateXRGB90(dst, width*4, packed, packedStride, width, height)
 				case display.Rotate180:
-					rotateXRGB180(dst, width*4, packed, width*4, width, height)
+					rotateXRGB180(dst, width*4, packed, packedStride, width, height)
 				case display.Rotate270:
-					rotateXRGB270(dst, width*4, packed, width*4, width, height)
+					rotateXRGB270(dst, width*4, packed, packedStride, width, height)
 				}
 			}
 			if err := CopyToXRGBRotatedInto(dst, width*4, logical, image.Rect(0, 0, width, height), r, scratch, row); err != nil {
