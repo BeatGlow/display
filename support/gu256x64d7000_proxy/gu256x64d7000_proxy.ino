@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#include <GU256X64D7000.h>
+#include "src/GU256X64D7000/src/GU256X64D7000.h"
 #include "xmodem_crc.h"
 
 #if !defined(ARDUINO_AVR_NANO_EVERY)
@@ -102,11 +102,15 @@ bool command(const uint8_t (&bytes)[N]) {
 }
 
 bool setPower(bool enabled) {
-  return command<5>({0x1f, 0x28, 0x61, vfdPowerSubcommand, uint8_t(enabled)});
+  const bool written = vfd.setPower(enabled);
+  vfdReady = vfdReady && written;
+  return written;
 }
 
 bool setBrightness(uint8_t level) {
-  return command<3>({0x1f, vfdBrightnessCommand, level});
+  const bool written = vfd.setBrightness(level);
+  vfdReady = vfdReady && written;
+  return written;
 }
 
 bool initVFD() {
@@ -115,8 +119,7 @@ bool initVFD() {
   pwmPhase = 0;
   gray2FrameValid = false;
   gray2NextReady = false;
-  vfd.reset();
-  vfdReady = command<3>({0x1b, 0x40, 0x0c}) &&
+  vfdReady = vfd.initialize() &&
              command<5>({0x1f, 0x28, 0x77, 0x10, 1}) &&  // Write across both banks.
              setBrightness(brightness) && setPower(visible);
   return vfdReady;

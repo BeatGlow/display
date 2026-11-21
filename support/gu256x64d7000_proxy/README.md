@@ -47,17 +47,27 @@ USB CDC and connect the Nano's USB port to the host.
 
 ## Build and run
 
+After cloning the display repository, fetch the pinned library submodule.
+
 ```sh
-arduino-cli core install arduino:megaavr
-arduino-cli compile --fqbn arduino:megaavr:nona4809:mode=off \
-  --library support/arduino/GU256X64D7000 support/gu256x64d7000_proxy
-arduino-cli compile --upload --fqbn arduino:megaavr:nona4809:mode=off \
-  --library support/arduino/GU256X64D7000 -p /dev/ttyACM0 support/gu256x64d7000_proxy
+git submodule update --init -- support/gu256x64d7000_proxy/src/GU256X64D7000
 ```
 
-The proxy uses the [GU256X64D7000 Arduino library](../arduino/GU256X64D7000/README.md)
-for parallel I/O. The library also supports standalone ATmega4809 sketches
-with custom wiring.
+In Arduino IDE, install **Arduino megaAVR Boards** and open
+`support/gu256x64d7000_proxy/gu256x64d7000_proxy.ino`. Select **Arduino Nano
+Every** and set **Registers emulation** to **None (ATMEGA4809)**.
+Use **Verify** to build or select a port and use **Upload**. The sketch
+includes the pinned library from its own `src` directory.
+
+```sh
+arduino-cli core install arduino:megaavr
+arduino-cli compile --fqbn arduino:megaavr:nona4809:mode=off support/gu256x64d7000_proxy
+arduino-cli upload --fqbn arduino:megaavr:nona4809:mode=off \
+  -p /dev/ttyACM0 support/gu256x64d7000_proxy
+```
+
+The [GU256X64D7000 Arduino library](https://github.com/BeatGlow/GU256X64D7000)
+also supports standalone ATmega4809 sketches with custom wiring.
 
 Use `display.OpenGU256X64D7000ProxySPI("/dev/spidev0.0", nil)` or
 `display.OpenGU256X64D7000ProxyUSB("/dev/ttyACM0", nil)` for the default
@@ -353,9 +363,9 @@ MPLAB X at 16 MHz.
 
 | Pixel format | Payload | SPI at 2 MHz | USB CDC at 1 Mbaud, 8N1 |
 | --- | ---: | ---: | ---: |
-| Mono | 2,048 bytes | 62.1 fps (16.09 ms) | 35.2 fps (28.38 ms) |
-| Gray3Level (3 levels) | 3,328 bytes | 24.4 fps (40.98 ms) | 16.4 fps (60.94 ms) |
-| Gray2 (4 levels) | 4,096 bytes | 33.0 fps (30.30 ms) | 18.2 fps (54.88 ms) |
+| Mono | 2,048 bytes | 62.6 fps (15.96 ms) | 35.4 fps (28.25 ms) |
+| Gray3Level (3 levels) | 3,328 bytes | 24.6 fps (40.72 ms) | 16.5 fps (60.68 ms) |
+| Gray2 (4 levels) | 4,096 bytes | 33.1 fps (30.17 ms) | 18.3 fps (54.75 ms) |
 
 The benchmark measures an initialized proxy with PBUSY held ready and
 grayscale lookup tables already built. Panel busy time, the protocol

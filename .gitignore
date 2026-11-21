@@ -10,6 +10,7 @@
 # But not these files...
 !/.gitattributes
 !/.gitignore
+!/.gitmodules
 !/.github/workflows/*
 
 !*.go
@@ -37,7 +38,4 @@
 !/support/gu256x64d7000_proxy/benchmark/Arduino.h
 !/support/gu256x64d7000_proxy/benchmark/bench.cpp
 !/support/gu256x64d7000_proxy/benchmark/run.py
-!/support/arduino/GU256X64D7000/library.properties
-!/support/arduino/GU256X64D7000/src/GU256X64D7000.h
-!/support/arduino/GU256X64D7000/examples/HelloVFD/HelloVFD.ino
-!/support/arduino/GU256X64D7000/examples/BitmapVFD/BitmapVFD.ino
+!/support/gu256x64d7000_proxy/src/GU256X64D7000
