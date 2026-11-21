@@ -63,17 +63,29 @@ inline bool waitVFD() {
   return !(VPORTF.IN & PIN4_bm) || waitBusyVFD();
 }
 
-inline __attribute__((always_inline)) bool writeVFD(uint8_t value) {
-  if (!waitVFD()) {
-    return false;
-  }
+inline __attribute__((always_inline)) void strobeVFD(uint8_t value, uint8_t portD, uint8_t portB) {
   // VFD D0..5 = PD0..5 and VFD D6..7 = PB0..1.
-  VPORTD.OUT = (VPORTD.OUT & 0xc0) | (value & 0x3f);
-  VPORTB.OUT = (VPORTB.OUT & 0xfc) | (value >> 6);
+  VPORTD.OUT = portD | (value & 0x3f);
+  VPORTB.OUT = portB | (value >> 6);
   VPORTC.OUT &= ~PIN6_bm;  // /WR (D4)
   asm volatile("nop\n\tnop" ::: "memory");
   VPORTC.OUT |= PIN6_bm;
   asm volatile("nop\n\tnop" ::: "memory");
+}
+
+inline __attribute__((always_inline)) bool writeVFD(uint8_t value) {
+  if (!waitVFD()) {
+    return false;
+  }
+  strobeVFD(value, VPORTD.OUT & 0xc0, VPORTB.OUT & 0xfc);
+  return true;
+}
+
+inline __attribute__((always_inline)) bool writeBitmapByte(uint8_t value, uint8_t portD, uint8_t portB) {
+  if (!waitVFD()) {
+    return false;
+  }
+  strobeVFD(value, portD, portB);
   return true;
 }
 
@@ -146,21 +158,23 @@ void prepareMasks(uint8_t format) {
 }
 
 template <bool FullGroup>
-bool writeGray3Group(const uint8_t *src, const uint8_t *mask) {
+inline __attribute__((always_inline)) bool writeGray3Group(
+    const uint8_t *src, const uint8_t *mask, uint8_t portD, uint8_t portB) {
   const uint8_t a = mask[src[0]], b = mask[src[1]], c = mask[src[2]];
   const uint8_t d = mask[src[3]], e = mask[src[4]];
   // Five base-3 digits decode to five vertical mask bits. The first
   // five groups contribute 24 bits, with one bit carried into byte four.
-  if (!writeVFD((a << 3) | (b >> 2)) ||
-      !writeVFD((b << 6) | (c << 1) | (d >> 4)) ||
-      !writeVFD((d << 4) | (e >> 1))) {
+  if (!writeBitmapByte((a << 3) | (b >> 2), portD, portB) ||
+      !writeBitmapByte((b << 6) | (c << 1) | (d >> 4), portD, portB) ||
+      !writeBitmapByte((d << 4) | (e >> 1), portD, portB)) {
     return false;
   }
   if (!FullGroup) {
     return true;  // The 25th bit is padding in the last group of the column.
   }
   const uint8_t f = mask[src[5]], g = mask[src[6]], h = mask[src[7]];
-  return writeVFD((e << 7) | (f << 2) | (g >> 3)) && writeVFD((g << 5) | h);
+  return writeBitmapByte((e << 7) | (f << 2) | (g >> 3), portD, portB) &&
+         writeBitmapByte((g << 5) | h, portD, portB);
 }
 
 bool writeBank(uint8_t bank, Bitmap bitmap) {
@@ -168,16 +182,20 @@ bool writeBank(uint8_t bank, Bitmap bitmap) {
                 0x1f, 0x28, 0x66, 0x11, 0, 1, 8, 0, 1})) {
     return false;
   }
+  // No other code writes these latches during the bitmap transfer.
+  const uint8_t portD = VPORTD.OUT & 0xc0;
+  const uint8_t portB = VPORTB.OUT & 0xfc;
   if (bitmap == Bitmap::Mono) {
     for (uint16_t i = 0; i < monoSize; ++i) {
-      if (!writeVFD(frame[i])) {
+      if (!writeBitmapByte(frame[i], portD, portB)) {
         return false;
       }
     }
   } else if (bitmap == Bitmap::Gray3Lit || bitmap == Bitmap::Gray3Full) {
     const uint8_t *mask = bitmap == Bitmap::Gray3Full ? fullPixels : litPixels;
     for (const uint8_t *column = frame; column != frame + gray3Size; column += gray3Column) {
-      if (!writeGray3Group<true>(column, mask) || !writeGray3Group<false>(column + 8, mask)) {
+      if (!writeGray3Group<true>(column, mask, portD, portB) ||
+          !writeGray3Group<false>(column + 8, mask, portD, portB)) {
         return false;
       }
     }
@@ -185,7 +203,7 @@ bool writeBank(uint8_t bank, Bitmap bitmap) {
     const uint8_t *mask = bitmap == Bitmap::Full ? fullPixels : litPixels;
     const uint8_t bits = bitmap == Bitmap::HighBit ? 0xaa : 0xff;
     for (uint16_t i = 0; i < gray2Size; i += 2) {
-      if (!writeVFD((mask[frame[i] & bits] << 4) | mask[frame[i + 1] & bits])) {
+      if (!writeBitmapByte((mask[frame[i] & bits] << 4) | mask[frame[i + 1] & bits], portD, portB)) {
         return false;
       }
     }
