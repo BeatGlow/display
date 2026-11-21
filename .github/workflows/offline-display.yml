@@ -420,7 +420,7 @@ jobs:
             image="$PREVIEW_DIR/$screen.png"
             if [[ -f "$image" ]]; then
               if [[ -n "$PREVIEW_BASE" ]]; then
-                printf '| %s | ![%s preview](%s/%s.png?run=%s) |\n' "$screen" "$screen" "$PREVIEW_BASE" "$screen" "$RUN_ID" >> "$comment_file"
+                printf '| %s | <img src="%s/%s.png?run=%s" alt="%s preview" width="512"> |\n' "$screen" "$PREVIEW_BASE" "$screen" "$RUN_ID" "$screen" >> "$comment_file"
               else
                 printf '| %s | [Open preview](%s#%s) |\n' "$screen" "$GALLERY_URL" "$screen" >> "$comment_file"
               fi

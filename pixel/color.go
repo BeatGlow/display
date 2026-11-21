@@ -68,10 +68,7 @@ type Gray2 struct {
 }
 
 func (c Gray2) RGBA() (r, g, b, a uint32) {
-	y := uint32(c.Y) & 3
-	y *= 4
-	y |= y << 4
-	y |= y << 8
+	y := uint32(c.Y&3) * 0x5555
 	return y, y, y, 0xffff
 }
 
@@ -79,10 +76,8 @@ func gray2Model(c color.Color) color.Color {
 	if _, ok := c.(Gray2); ok {
 		return c
 	}
-	r, g, b, _ := c.RGBA()
-	y := (299*r + 587*g + 114*b + 500) / 1000
-	y >>= 6
-	return Gray2{Y: uint8(y & 0x3)}
+	y := color.GrayModel.Convert(c).(color.Gray).Y
+	return Gray2{Y: y >> 6}
 }
 
 // Gray3Level represents a three-level grayscale color with 0%, 50%, or 100% luminance.

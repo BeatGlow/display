@@ -292,7 +292,7 @@ func main() {
 				case pixel.Gray3LevelModel:
 					output.Set(x, y, pixel.Gray3Level{Y: uint8((x + y + offset) / 4 % 3)})
 				case pixel.Gray2Model:
-					output.Set(x, y, pixel.Gray4{Y: uint8(x+y+offset) & 0x3})
+					output.Set(x, y, pixel.Gray2{Y: uint8((x + y + offset) / 4 % 4)})
 				case pixel.Gray4Model:
 					output.Set(x, y, pixel.Gray4{Y: uint8(x+y+offset) & 0xf})
 				default:

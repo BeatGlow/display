@@ -253,7 +253,7 @@ func copyGray2(dst []byte, dstStride int, src *pixel.Gray2Image) error {
 		for x := 0; x < w; x++ {
 			packed := src.Pix[y*src.Stride+x/4]
 			level := (packed >> uint((3-x&3)*2)) & 3
-			gray := level * 68 // Match pixel.Gray2.RGBA().
+			gray := level * 0x55 // Match pixel.Gray2.RGBA().
 			putXRGB(row[x*4:], gray, gray, gray)
 		}
 	}
