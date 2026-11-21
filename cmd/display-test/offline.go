@@ -377,6 +377,21 @@ func (p brightnessPreview) At(x, y int) color.Color {
 	}
 }
 
+// vfdPreview approximates the blue-green phosphor of a VFD in the PNG.
+type vfdPreview struct{ image.Image }
+
+func (vfdPreview) ColorModel() color.Model { return color.RGBAModel }
+
+func (p vfdPreview) At(x, y int) color.Color {
+	r, g, b, a := p.Image.At(x, y).RGBA()
+	return color.RGBA{
+		R: uint8(r * 0x50 / 0xffff),
+		G: uint8(g >> 8),
+		B: uint8(b * 0xdc / 0xffff),
+		A: uint8(a >> 8),
+	}
+}
+
 type offlinePin struct {
 	duty   gpio.Duty
 	pwmSet bool

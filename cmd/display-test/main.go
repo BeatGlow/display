@@ -362,8 +362,12 @@ func main() {
 				}
 				fmt.Printf("wrote connection trace to %s\n", *traceFlag)
 			}
+			driver := strings.ToLower(flag.Arg(1))
 			if *contrastFlag >= 0 {
-				preview = atBrightness(preview, strings.ToLower(flag.Arg(1)), uint8(*contrastFlag))
+				preview = atBrightness(preview, driver, uint8(*contrastFlag))
+			}
+			if strings.HasPrefix(driver, "gp") || strings.HasPrefix(driver, "gu") {
+				preview = vfdPreview{Image: preview}
 			}
 			file, createErr := os.Create(*outputFlag)
 			if createErr != nil {
