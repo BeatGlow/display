@@ -5,10 +5,10 @@ implement Go's image interfaces, along with planar YU12 images. Grayscale
 formats include four-level (2-bit), sixteen-level (4-bit), and three-level
 images with 0%, 50%, and 100% luminance. The image `Fill` methods call direct
 assembly entry points on ARM64 and amd64.
-ARM64 repeats the pattern with `VDUP` and writes 16-byte vectors with `VST1`;
-amd64 uses `PUNPCKLQDQ` and 16-byte `MOVOU` stores. Other architectures use
-the scalar fill loop. The optimized
-path also avoids per-pixel temporary allocations when filling 16-bit images.
+ARM64 uses `VDUP` and writes 16-byte vectors with `VST1`. amd64 uses
+`PUNPCKLQDQ` and 16-byte `MOVOU` stores. Other architectures use the scalar
+fill loop. Vectorized fills also avoid per-pixel temporary allocations for
+16-bit images.
 
 ## Fill performance
 
