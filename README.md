@@ -7,11 +7,11 @@
 ## What you can build with it
 
 - Drive monochrome, grayscale, and color displays through I²C, SPI, or 8080-style parallel connections.
+- Use the GU256X64D-7000's native 8-bit parallel driver, or its Nano Every proxy over 2 MHz SPI or 1 Mbaud USB CDC. The proxy accepts monochrome, three-level, and four-level grayscale frames, plus native monochrome bitmap and text commands.
 - Work with displays through the standard `image.Image`, `draw.Image`, and `color.Color` interfaces.
 - Compose graphics with pixel formats and drawing helpers designed for small displays.
-- Build compact interfaces with the widget, font, and menu packages.
 - Select a Linux DRM/KMS or fbdev display through `framebuffer`, or open a backend directly from its subpackage.
-- Drive Linux and FreeBSD 15.1 amd64 displays through DRM/KMS, with connector and mode selection plus vblank-synchronized page flips.
+- Drive displays through Linux DRM/KMS or FreeBSD 15.1 amd64 DRM/KMS, with connector and mode selection plus vblank-synchronized page flips.
 - Optimized 16-bit image blits, solid spans, RGBA copies, and pixel-buffer fills.
 
 ## Rendering benchmark highlights
@@ -40,7 +40,7 @@ Reproduce with `go test . -run '^$' -bench 'Benchmark(SPITransferChunking|Displa
 
 ## Display controllers
 
-The package includes drivers for SSD1305, SSD1306, SSD1322, SSD1362, SH1106, SH1122, ST7735, ST7789, GU3000, GU256X64D-7000, GP1247AI, GP1287BI, and GP1294AI. Check the [Go package reference](https://pkg.go.dev/github.com/BeatGlow/display) for the current API and controller details.
+The package includes drivers for SSD1305, SSD1306, SSD1322, SSD1362, SH1106, SH1122, ST7735, ST7789, GU3000, GU256X64D-7000, GP1247AI, GP1287AI/BI, and GP1294AI. Check the [Go package reference](https://pkg.go.dev/github.com/BeatGlow/display) for the current API and controller details.
 
 The GU256X64D-7000 also supports monochrome and three- or four-level grayscale through an Arduino Nano Every over SPI or USB. See the [proxy firmware, wiring, and protocol](support/gu256x64d7000_proxy/README.md).
 
@@ -77,13 +77,13 @@ Each driver also exposes controls such as rotation, contrast, and display power 
 | Package | Purpose |
 | --- | --- |
 | `display` | Display interface, controller drivers, and hardware connections |
-| `pixel` | Packed monochrome, grayscale, and RGB image formats |
-| `draw` | Image composition and shape drawing helpers |
-| `draw/menu` | Menu model for compact, button-driven interfaces |
-| `ui` and `ui/font` | Widgets, styles, themes, and text rendering |
+| `conn` | Direct I²C and SPI device access |
+| `pixel` | Packed monochrome, grayscale, and RGB images, plus planar YU12 images |
+| `draw` | Image composition, anti-aliased lines, and shape drawing helpers |
+| `draw/scope` | SVG-driven oscilloscope and phosphor rendering |
 | `framebuffer` | Automatic Linux/FreeBSD DRM/KMS and Linux fbdev selection |
 | `framebuffer/fbdev` | Linux fbdev output |
-| `framebuffer/kms` | Linux and FreeBSD 15.1 amd64 DRM/KMS output |
+| `framebuffer/kms` | Linux and FreeBSD 15.1 amd64 DRM/KMS output with vblank-synchronized page flips |
 
 The KMS backend uses optimized CPU pixel conversion to prepare scanout buffers from the library's image formats. See the [`framebuffer/kms` package README](framebuffer/kms/README.md) for benchmarks and end-to-end performance results.
 
