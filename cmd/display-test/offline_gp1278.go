@@ -16,6 +16,6 @@ func init() {
 			v := uint16(level) * 4
 			return []byte{byte(v >> 8), byte(v)}
 		}),
-		brightnessScale: func(level uint8) uint8 { return uint8(uint16(level) * 4 * 255 / 1023) },
+		brightnessScale: gp12xxPreviewBrightness,
 	})
 }

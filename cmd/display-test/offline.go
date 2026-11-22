@@ -195,7 +195,7 @@ func decodeFrame(driver string, frame image.Image, encoded []byte) (*image.RGBA,
 		for y := range h {
 			for x := range w {
 				v := (encoded[y*stride+x/4] >> uint((3-x%4)*2)) & 3
-				gray := v * 0x44
+				gray := v * 0x55
 				decoded.SetRGBA(x, y, color.RGBA{R: gray, G: gray, B: gray, A: 0xff})
 			}
 		}
@@ -349,6 +349,11 @@ func reverseBits(b byte) byte {
 	return b<<4 | b>>4
 }
 
+// The GP12xx drivers expand 8-bit contrast to a 10-bit dimming value.
+func gp12xxPreviewBrightness(level uint8) uint8 {
+	return uint8(uint32(level) * 4 * 255 / 1023)
+}
+
 type brightnessPreview struct {
 	image.Image
 	scale uint8
@@ -368,6 +373,21 @@ func (p brightnessPreview) At(x, y int) color.Color {
 		R: uint8((r * uint32(p.scale)) / 0xffff),
 		G: uint8((g * uint32(p.scale)) / 0xffff),
 		B: uint8((b * uint32(p.scale)) / 0xffff),
+		A: uint8(a >> 8),
+	}
+}
+
+// vfdPreview approximates the blue-green phosphor of a VFD in the PNG.
+type vfdPreview struct{ image.Image }
+
+func (vfdPreview) ColorModel() color.Model { return color.RGBAModel }
+
+func (p vfdPreview) At(x, y int) color.Color {
+	r, g, b, a := p.Image.At(x, y).RGBA()
+	return color.RGBA{
+		R: uint8(r * 0x50 / 0xffff),
+		G: uint8(g >> 8),
+		B: uint8(b * 0xdc / 0xffff),
 		A: uint8(a >> 8),
 	}
 }
@@ -415,6 +435,8 @@ func newVirtualDisplay(width, height int, modelName string) (display.Display, er
 		img, model = pixel.NewMonoImage(width, height), pixel.MonoModel
 	case "gray2":
 		img, model = pixel.NewGray2Image(width, height), pixel.Gray2Model
+	case "gray3level":
+		img, model = pixel.NewGray3LevelImage(width, height), pixel.Gray3LevelModel
 	case "gray4":
 		img, model = pixel.NewGray4Image(width, height), pixel.Gray4Model
 	case "rgb15":
@@ -424,7 +446,7 @@ func newVirtualDisplay(width, height int, modelName string) (display.Display, er
 	case "yu12":
 		img, model = pixel.NewYU12Image(width, height), color.YCbCrModel
 	default:
-		return nil, fmt.Errorf("unsupported offline color model %q (choose mono, gray2, gray4, rgb15, rgb16, or yu12)", modelName)
+		return nil, fmt.Errorf("unsupported offline color model %q (choose mono, gray2, gray3level, gray4, rgb15, rgb16, or yu12)", modelName)
 	}
 	return &virtualDisplay{Image: img, model: model}, nil
 }

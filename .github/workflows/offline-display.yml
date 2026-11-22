@@ -138,7 +138,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        color: [mono, gray2, gray4, rgb15, rgb16, yu12]
+        color: [mono, gray2, gray3level, gray4, rgb15, rgb16, yu12]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -258,7 +258,8 @@ jobs:
           expected = []
           if os.environ["ALL_DRIVERS"] == "1":
               expected.extend([
-                  "virtual-mono.png", "virtual-gray2.png", "virtual-gray4.png",
+                  "virtual-mono.png", "virtual-gray2.png", "virtual-gray3level.png",
+                  "virtual-gray4.png",
                   "virtual-rgb15.png", "virtual-rgb16.png", "virtual-yu12.png",
               ])
           expected.extend(f"{driver}.png" for driver in json.loads(os.environ["EXPECTED_DRIVERS"]))
@@ -402,8 +403,9 @@ jobs:
           virtual_count=0
           screens=("${drivers[@]}")
           if [[ "$ALL_DRIVERS" == "1" ]]; then
-            virtual_count=6
-            screens=(virtual-mono virtual-gray2 virtual-gray4 virtual-rgb15 virtual-rgb16 virtual-yu12 "${drivers[@]}")
+            virtual_screens=(virtual-mono virtual-gray2 virtual-gray3level virtual-gray4 virtual-rgb15 virtual-rgb16 virtual-yu12)
+            virtual_count=${#virtual_screens[@]}
+            screens=("${virtual_screens[@]}" "${drivers[@]}")
           fi
 
           {
@@ -418,7 +420,7 @@ jobs:
             image="$PREVIEW_DIR/$screen.png"
             if [[ -f "$image" ]]; then
               if [[ -n "$PREVIEW_BASE" ]]; then
-                printf '| %s | ![%s preview](%s/%s.png?run=%s) |\n' "$screen" "$screen" "$PREVIEW_BASE" "$screen" "$RUN_ID" >> "$comment_file"
+                printf '| %s | <img src="%s/%s.png?run=%s" alt="%s preview" width="512"> |\n' "$screen" "$PREVIEW_BASE" "$screen" "$RUN_ID" "$screen" >> "$comment_file"
               else
                 printf '| %s | [Open preview](%s#%s) |\n' "$screen" "$GALLERY_URL" "$screen" >> "$comment_file"
               fi

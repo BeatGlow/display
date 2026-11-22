@@ -28,21 +28,21 @@ func TestMono(t *testing.T) {
 	}
 }
 
-func TestGray2(t *testing.T) {
-	for y := 0; y < 4; y++ {
-		t.Run("", func(it *testing.T) {
-			c := Gray2{Y: uint8(y)}
-			r, g, b, _ := c.RGBA()
-			y *= 4
-			want := uint32(y | y<<4 | y<<8 | y<<12)
-			if r != want {
-				t.Errorf("expected red to be %#04x, got %#04x", want, r)
-			}
-			if g != want {
-				t.Errorf("expected green to be %#04x, got %#04x", want, g)
-			}
-			if b != want {
-				t.Errorf("expected blue to be %#04x, got %#04x", want, b)
+func TestGray2RendersFourEvenlySpacedShades(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		code uint8
+		gray uint32
+	}{
+		{"black", 0, 0x0000},
+		{"dark gray", 1, 0x5555},
+		{"light gray", 2, 0xaaaa},
+		{"white", 3, 0xffff},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, g, b, a := (Gray2{Y: tc.code}).RGBA()
+			if r != tc.gray || g != tc.gray || b != tc.gray || a != 0xffff {
+				t.Errorf("level %d renders RGBA (%#04x, %#04x, %#04x, %#04x), want opaque gray %#04x", tc.code, r, g, b, a, tc.gray)
 			}
 		})
 	}
@@ -75,8 +75,8 @@ func TestGrayModelsConvertColorChannels(t *testing.T) {
 		gray4 uint8
 	}{
 		{"black", color.RGBA{A: 255}, 0, 0},
-		{"red", color.RGBA{R: 255, A: 255}, 2, 8},
-		{"green", color.RGBA{G: 255, A: 255}, 1, 4},
+		{"red", color.RGBA{R: 255, A: 255}, 1, 8},
+		{"green", color.RGBA{G: 255, A: 255}, 2, 4},
 		{"blue", color.RGBA{B: 255, A: 255}, 0, 2},
 		{"white", color.RGBA{R: 255, G: 255, B: 255, A: 255}, 3, 15},
 		{"mid-gray", color.Gray{Y: 128}, 2, 8},
