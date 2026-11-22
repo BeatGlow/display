@@ -1,12 +1,12 @@
 # SVG oscilloscope splash screens
 
-The scope package compiles SVG outlines into a repeating X-Y DAC signal.
-A Renderer owns its signal, filter state, phosphor charge, blur buffers,
-optical remap and color tables. Create it once for the destination bounds,
-then update and render from one goroutine.
+The scope package compiles SVG outlines into a repeating X-Y DAC signal. A
+Renderer owns its signal, filter state, phosphor charge, blur buffers, optical
+remap, and color tables. Create it once for the destination bounds, then update
+and render it from one goroutine.
 
-The [BeatGlow splash SVG](testdata/beatglow.svg) uses the current waveform-circle
-mark and approved Fugaz One wordmark as monochrome outlines. The runnable
+The [BeatGlow splash SVG](testdata/beatglow.svg) contains monochrome outlines of
+the waveform-circle mark and Fugaz One wordmark. The runnable
 [example](example_test.go) embeds this asset and renders it at 400×128 with
 `CRTBulge = 0.31`.
 
@@ -27,39 +27,41 @@ if err := renderer.BlitToDisplay(dst); err != nil {
 }
 ```
 
-Here dst is a display.Display. BlitToDisplay calls RenderTo followed by
-dst.Refresh(). RenderTo also accepts an in-memory image/draw.Image and leaves
-presentation to the caller. Screen power remains controlled by the application
-through dst.Show(true).
+For hardware output, dst is a display.Display. BlitToDisplay calls RenderTo
+then dst.Refresh(). RenderTo also accepts an in-memory image/draw.Image and
+leaves presentation to the caller. The application controls screen power with
+dst.Show(true).
 
 CompileSVG handles paths, lines, rectangles, circles, ellipses, polygons and
 polylines, including nested affine transforms, Bézier curves and arcs. Convert
 text and SVG clones to paths first. Paint, masks and stroke widths are ignored.
-Compilation can allocate and replaces the previous drawing only on success.
+Compilation can allocate. If it fails, the previous drawing remains in place.
 
 UpdatePhysics advances the repeating signal, applies white thermal noise,
 optional mains hum, AC coupling, vector slew limiting and a second-order
 Butterworth low-pass, then decays and deposits phosphor charge. StepSignal
 prepares a signal frame for the next UpdatePhysics call, which consumes it
-without advancing the DAC again. Repeating StepSignal replaces the pending
-frame. Use UpdatePhysics for the normal frame
-loop. Zero or negative time steps do nothing. Steps longer than one second are
-capped to bound catch-up work after a pause.
+without advancing the DAC again. Calling StepSignal again replaces the pending
+frame. Use UpdatePhysics for the normal frame loop. Zero or negative time steps
+do nothing. Steps longer than one second are limited to one second to cap
+catch-up work after a pause.
 
 RenderTo uses precomputed bilinear curvature coordinates and color tables.
-Color destinations receive green phosphor with pale highlights. Gray2, Gray4
-and standard grayscale destinations receive luminance with gamma 1.8.
+Color destinations receive green phosphor with pale highlights. Gray3Level,
+Gray2, Gray4, and standard grayscale destinations receive luminance with gamma
+1.8.
 Monochrome destinations receive a fixed 4×4 Bayer pattern. The packed CRGB16,
 Gray2, Gray4 and mono formats and standard RGBA have direct buffer paths.
-Other draw.Image implementations use preboxed colors through Set, respecting
-driver rotation. Heights below 128 pixels use sparse grid intersections.
+For other draw.Image destinations, RenderTo calls Set with preboxed colors and
+respects driver rotation. Heights below 128 pixels use sparse grid
+intersections.
 The default beam radius is derived from the height and capped at 2 pixels
 for the 7×7 electron kernel. Explicit radii range from 0.1 to 2 pixels.
 
 RenderTo and UpdatePhysics allocate no heap memory after initialization and
 compilation. Hardware Refresh may allocate or block according to its driver.
 Recreate the renderer after changing display bounds or static configuration.
-The renderer owns no goroutine or device resource and requires no Close call.
+Renderer owns no goroutine or device resources, so it needs no Close call.
 
 Run the CPU frame benchmark with:
 

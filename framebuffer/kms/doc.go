@@ -1,6 +1,9 @@
 /*
 Package kms opens DRM/KMS displays with dumb scanout buffers on Linux and
-FreeBSD amd64, selecting a connected output and display mode.
+FreeBSD amd64, selecting a connected output and display mode. Refresh uses
+double-buffered scanout and vblank-synchronized page flips. Opening a display
+requires permission to acquire DRM master, which an active compositor usually
+holds.
 */
 package kms
 

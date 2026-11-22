@@ -1,4 +1,3 @@
-// Package scope renders animated SVG outlines with a simulated X-Y CRT beam.
 package scope
 
 import (
