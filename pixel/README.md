@@ -10,6 +10,12 @@ ARM64 uses `VDUP` and writes 16-byte vectors with `VST1`. amd64 uses
 fill loop. Vectorized fills also avoid per-pixel temporary allocations for
 16-bit images.
 
+`PackedWriter` writes 8-bit luminance or RGBA colors directly into supported
+packed formats. It writes mono, Gray2, Gray3Level, Gray4, and 15- or 16-bit
+RGB/BGR images without the `image.Set` conversion path.
+`MonoDither` exposes its 4×4 ordered threshold for destinations that do not
+provide packed pixel storage.
+
 ## Fill performance
 
 Single-goroutine Go benchmarks for filling Gray4 and CRGB16 buffers at
