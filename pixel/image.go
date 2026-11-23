@@ -46,9 +46,10 @@ const (
 )
 
 // PixelView exposes storage for optional, format-aware drawing fast paths.
-// Pix is borrowed and must not be retained by callers.
+// Pix is borrowed and remains valid while the image's backing storage remains
+// valid. Callers must not mutate it concurrently with image operations.
 type PixelView struct {
-	// Pix borrows the image's pixel storage and must not be retained.
+	// Pix borrows the image's pixel storage and is valid while that storage is valid.
 	Pix []byte
 	// Stride is the byte distance between vertically adjacent rows.
 	Stride int
