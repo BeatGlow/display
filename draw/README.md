@@ -37,8 +37,3 @@ go test ./draw -run '^$' -bench 'Benchmark(BlitCRGB16|UniformSpanCRGB16|RGBAtoCR
 `draw.LineAA(dst, a, b, width, ink)` blends a stroke over a drawing surface.
 Supply a premultiplied `color.RGBA` for translucent ink. The RGBA fast path
 blends directly into the pixel slice and respects subimage bounds and stride.
-
-On a Pi 4, the player's 1280×400 StereoScope drawing pass with metric readouts
-took 15.06 ms per frame with its original line helper and 10.95 ms with
-`LineAA`. These are medians from five interleaved one-second samples per
-version using fixed stereo sine-wave input and an in-memory RGBA destination.

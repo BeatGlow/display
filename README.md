@@ -80,7 +80,6 @@ Each driver also exposes controls such as rotation, contrast, and display power 
 | `conn` | Direct I²C and SPI device access |
 | `pixel` | Packed monochrome, grayscale, and RGB images, plus planar YU12 images |
 | `draw` | Image composition, anti-aliased lines, and shape drawing helpers |
-| `draw/scope` | SVG-driven oscilloscope and phosphor rendering |
 | `framebuffer` | Automatic Linux/FreeBSD DRM/KMS and Linux fbdev selection |
 | `framebuffer/fbdev` | Linux fbdev output |
 | `framebuffer/kms` | Linux and FreeBSD 15.1 amd64 DRM/KMS output with vblank-synchronized page flips |

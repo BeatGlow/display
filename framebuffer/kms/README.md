@@ -40,8 +40,8 @@ rows. A final partial strip uses 16-byte stores for the remaining 4×4 tiles.
 
 At 1280×400 with four workers, rotating an RGBA image into alternating private
 DRM dumb buffers on the Pi 4 gave these medians. Each revision ran five
-interleaved one-second samples while the StereoScope sidecar was active at
-25 FPS. CPU time sums user and system time across the benchmark process.
+interleaved one-second samples alongside a 25 FPS background-rendering
+workload. CPU time sums user and system time across the benchmark process.
 
 | Destination and metric | v1.4.2 | v1.4.3 |
 | --- | ---: | ---: |

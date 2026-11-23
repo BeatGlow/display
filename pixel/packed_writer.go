@@ -7,14 +7,16 @@ import (
 
 var packedDither4x4 = [16]uint8{0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5}
 
-// PackedWriter writes pixels directly into a packed [FastImage]. Keep the
-// image alive and do not modify its storage concurrently while using the writer.
+// PackedWriter writes pixels directly into a packed [FastImage] without
+// allocating. Keep the image alive, do not replace its backing storage, and do
+// not modify it concurrently while using the writer.
 type PackedWriter struct {
 	view PixelView
 }
 
-// NewPackedWriter returns a direct writer for supported packed pixel formats.
-// It returns false for invalid storage and planar YU12 images.
+// NewPackedWriter returns a direct writer for supported packed pixel formats:
+// monochrome, Gray2, Gray3Level, Gray4, and 15- or 16-bit RGB/BGR. It returns
+// false for invalid storage and planar YU12 images.
 func NewPackedWriter(img FastImage) (PackedWriter, bool) {
 	if img == nil {
 		return PackedWriter{}, false
