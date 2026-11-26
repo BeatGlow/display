@@ -4,7 +4,7 @@
 
 // Each major-axis step visits one clipped span along the minor axis.
 // R0 is the first minor pixel on this scanline; R1 and R2 are its two strides.
-TEXT ·probeStroke(SB), NOSPLIT|NOFRAME, $0-108
+TEXT ·probeStroke(SB), NOSPLIT|NOFRAME, $0-120
 	MOVD pix_base+0(FP), R0
 	MOVD majorStep+24(FP), R1
 	MOVD minorStep+32(FP), R2
@@ -16,6 +16,7 @@ TEXT ·probeStroke(SB), NOSPLIT|NOFRAME, $0-108
 	FMOVD minorMin+80(FP), F6
 	FMOVD minorMax+88(FP), F7
 	FMOVD reach+96(FP), F8
+	MOVD quotients+112(FP), R12
 	FCVTZSD F6, R5
 	FMOVD $1.0, F9
 
@@ -38,8 +39,10 @@ TEXT ·probeStroke(SB), NOSPLIT|NOFRAME, $0-108
 
 scanline:
 	// center = minorStart + dy * (majorOffset / dx).
+	CBNZ R12, cachedFraction
 	SCVTFD R4, F10
 	FDIVD F4, F10, F10
+center:
 	FMADDD F5, F3, F10, F10
 	FSUBD F8, F10, F11
 	FRINTMD F11, F11
@@ -113,3 +116,7 @@ nextScanline:
 	SUBS $1, R3
 	BNE scanline
 	RET
+
+cachedFraction:
+	FMOVD.P 8(R12), F10
+	B center

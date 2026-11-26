@@ -7,7 +7,9 @@ import (
 	"math"
 )
 
-func probeStroke(pix []byte, majorStep, minorStep, count, majorOffset int, minorStart, dx, dy, minorMin, minorMax, reach float64, ink color.RGBA) {
+func strokeQuotients(float64, int) *float64 { return nil }
+
+func probeStroke(pix []byte, majorStep, minorStep, count, majorOffset int, minorStart, dx, dy, minorMin, minorMax, reach float64, ink color.RGBA, _ *float64) {
 	base := 0
 	for i := 0; i < count; i++ {
 		center := minorStart + dy*(float64(majorOffset+i)/dx)
