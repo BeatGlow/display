@@ -11,11 +11,54 @@ import (
 // across the minor axis in pixels, with a minimum of one. A zero-length line
 // covers its single pixel fully.
 func LineAA(dst Image, a, b image.Point, width int, ink color.RGBA) {
-	bounds := dst.Bounds()
+	lineAA(dst, nil, a, b, width, ink)
+}
+
+// LineAAPainter draws successive anti-aliased lines on one destination.
+type LineAAPainter struct {
+	dst                  Image
+	rgba                 image.RGBA
+	horizontal, vertical strokeMinorBounds
+}
+
+// NewLineAAPainter prepares dst for repeated anti-aliased strokes. For a
+// valid *image.RGBA, the painter captures the pixel slice, stride, and bounds.
+// Create a new painter when switching buffers or drawing bounds.
+func NewLineAAPainter(dst Image) LineAAPainter {
+	rgba, ok := dst.(*image.RGBA)
+	if !ok || !validStrokeRGBA(rgba) {
+		return LineAAPainter{dst: dst}
+	}
+	return LineAAPainter{
+		rgba:       *rgba,
+		horizontal: newStrokeMinorBounds(rgba.Rect.Min.Y, rgba.Rect.Max.Y),
+		vertical:   newStrokeMinorBounds(rgba.Rect.Min.X, rgba.Rect.Max.X),
+	}
+}
+
+// Line draws one stroke with the same coverage and blending as [LineAA].
+// Strokes are composited in the order of the calls.
+func (p *LineAAPainter) Line(a, b image.Point, width int, ink color.RGBA) {
+	if p.rgba.Pix == nil {
+		LineAA(p.dst, a, b, width, ink)
+		return
+	}
+	lineAA(nil, p, a, b, width, ink)
+}
+
+func lineAA(dst Image, painter *LineAAPainter, a, b image.Point, width int, ink color.RGBA) {
+	var rgba *image.RGBA
+	var bounds image.Rectangle
+	if painter != nil {
+		rgba = &painter.rgba
+		bounds = rgba.Rect
+	} else {
+		bounds = dst.Bounds()
+		rgba, _ = dst.(*image.RGBA)
+	}
 	if bounds.Empty() || ink.A == 0 {
 		return
 	}
-	rgba, _ := dst.(*image.RGBA)
 	if a == b {
 		if a.In(bounds) {
 			blendStrokePixel(dst, rgba, a.X, a.Y, ink)
@@ -39,25 +82,34 @@ func LineAA(dst Image, a, b image.Point, width int, ink color.RGBA) {
 		return
 	}
 	reach := (float64(max(1, width)) + 1) / 2
-	// Keep the original pixel-center arithmetic for ordinary images. For
-	// origins beyond the half-pixel precision of float64, translate first.
-	origin := 0
-	if float64(bounds.Min.Y) <= -(1<<52) || float64(bounds.Max.Y) >= 1<<52 {
-		origin = bounds.Min.Y
+	var minorBounds strokeMinorBounds
+	switch {
+	case painter == nil:
+		minorBounds = newStrokeMinorBounds(bounds.Min.Y, bounds.Max.Y)
+	case steep:
+		minorBounds = painter.vertical
+	default:
+		minorBounds = painter.horizontal
 	}
+	origin := minorBounds.origin
 	minorStart := strokeDelta(origin, a.Y)
-	minorMin, minorMax := strokeDelta(origin, bounds.Min.Y), strokeDelta(origin, bounds.Max.Y)
+	minorMin, minorMax := minorBounds.min, minorBounds.max
 	// The native kernel walks a clipped RGBA rectangle by byte stride.
 	// Keep extreme major-axis distances on the unsigned-delta path below.
-	if rgba != nil && math.Abs(dx) < min(1<<52, float64(math.MaxInt)) && validStrokeRGBA(rgba) {
+	if rgba != nil && math.Abs(dx) < min(1<<52, float64(math.MaxInt)) && (painter != nil || validStrokeRGBA(rgba)) {
 		x, y := first, bounds.Min.Y
 		majorStep, minorStep := 4, rgba.Stride
 		if steep {
 			x, y = y, x
 			majorStep, minorStep = minorStep, majorStep
 		}
-		probeStroke(rgba.Pix[rgba.PixOffset(x, y):], majorStep, minorStep, last-first+1, first-a.X,
-			minorStart, dx, dy, minorMin, minorMax, reach, ink)
+		majorOffset := first - a.X
+		var quotients *float64
+		if painter != nil {
+			quotients = strokeQuotients(dx, majorOffset)
+		}
+		probeStroke(rgba.Pix[rgba.PixOffset(x, y):], majorStep, minorStep, last-first+1, majorOffset,
+			minorStart, dx, dy, minorMin, minorMax, reach, ink, quotients)
 		return
 	}
 	for major := first; major <= last; major++ {
@@ -78,6 +130,21 @@ func LineAA(dst Image, a, b image.Point, width int, ink color.RGBA) {
 			blendStrokePixel(dst, rgba, x, y, source)
 		}
 	}
+}
+
+type strokeMinorBounds struct {
+	origin   int
+	min, max float64
+}
+
+func newStrokeMinorBounds(min, max int) strokeMinorBounds {
+	// Keep the original pixel-center arithmetic for ordinary images. For
+	// origins beyond the half-pixel precision of float64, translate first.
+	origin := 0
+	if float64(min) <= -(1<<52) || float64(max) >= 1<<52 {
+		origin = min
+	}
+	return strokeMinorBounds{origin, strokeDelta(origin, min), strokeDelta(origin, max)}
 }
 
 // Subtract before conversion so nearby coordinates retain their distance even
