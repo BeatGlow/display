@@ -29,3 +29,25 @@ type Event struct {
 	// End is the swipe end in strip coordinates.
 	End image.Point
 }
+
+func buttonEvents(previous, current []byte, press, release EventKind) []Event {
+	for _, state := range current {
+		if state > 1 {
+			return nil
+		}
+	}
+
+	var events []Event
+	for i, state := range current {
+		if state == previous[i] {
+			continue
+		}
+		kind := release
+		if state == 1 {
+			kind = press
+		}
+		events = append(events, Event{Kind: kind, Index: i})
+		previous[i] = state
+	}
+	return events
+}

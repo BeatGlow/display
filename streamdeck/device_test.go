@@ -206,6 +206,16 @@ type testTransport struct {
 
 func testDeck(t *testing.T, reports [][]byte) (*Device, *testTransport) {
 	t.Helper()
+	return testDeckFor(t, plusProductID, reports)
+}
+
+func testDeckFor(t *testing.T, productID uint16, reports [][]byte) (*Device, *testTransport) {
+	t.Helper()
+	spec, ok := lookupModel(productID)
+	if !ok {
+		t.Fatalf("no registered model for 0x%04x", productID)
+	}
+
 	transport := &testTransport{
 		input:   make(chan []byte, max(len(reports), 1)),
 		reading: make(chan struct{}, 1),
@@ -214,7 +224,6 @@ func testDeck(t *testing.T, reports [][]byte) (*Device, *testTransport) {
 	for _, report := range reports {
 		transport.input <- report
 	}
-	spec, _ := lookupModel(plusProductID)
 	d := newDevice(DeviceInfo{Model: spec.model}, transport, spec.newProtocol())
 	t.Cleanup(func() { _ = d.Close() })
 	return d, transport

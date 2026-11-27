@@ -1,5 +1,5 @@
 // Package streamdeck controls Elgato Stream Deck devices over USB HID.
-// It supports the Stream Deck + on Linux and macOS.
+// Supported models are available on Linux and macOS.
 package streamdeck
 
 import (
@@ -40,20 +40,6 @@ type DeviceInfo struct {
 	Model Model
 }
 
-type modelSpec struct {
-	model       Model
-	newProtocol func() protocol
-}
-
-func lookupModel(productID uint16) (modelSpec, bool) {
-	switch productID {
-	case plusProductID:
-		return modelSpec{model: plusModel, newProtocol: func() protocol { return &plusProtocol{} }}, true
-	default:
-		return modelSpec{}, false
-	}
-}
-
 type hidIdentity struct {
 	path      string
 	productID uint16
@@ -71,6 +57,9 @@ type transport interface {
 type protocol interface {
 	events([]byte) []Event
 	writeKey(int, image.Image, func([]byte) error) error
+}
+
+type stripProtocol interface {
 	writeStrip(image.Image, func([]byte) error) error
 }
 
@@ -173,17 +162,33 @@ func (d *Device) SetKeyImage(key int, img image.Image) error {
 	if d.closed() {
 		return os.ErrClosed
 	}
+	model := d.info.Model
+	keyCount := model.KeyColumns * model.KeyRows
+	if key < 0 || key >= keyCount {
+		return fmt.Errorf("streamdeck: key %d outside [0, %d)", key, keyCount)
+	}
+	if err := validateImageSize(img, model.KeySize); err != nil {
+		return err
+	}
 	return d.protocol.writeKey(key, img, d.writeReport)
 }
 
-// SetStripImage sends an image matching the model's touch strip size.
+// SetStripImage sends an image matching the touch strip size.
+// It returns ErrUnsupported on models without a touch strip.
 func (d *Device) SetStripImage(img image.Image) error {
 	d.writeMu.Lock()
 	defer d.writeMu.Unlock()
 	if d.closed() {
 		return os.ErrClosed
 	}
-	return d.protocol.writeStrip(img, d.writeReport)
+	strip, ok := d.protocol.(stripProtocol)
+	if !ok {
+		return fmt.Errorf("%w: %s has no touch strip", ErrUnsupported, d.info.Model.Name)
+	}
+	if err := validateImageSize(img, d.info.Model.StripSize); err != nil {
+		return err
+	}
+	return strip.writeStrip(img, d.writeReport)
 }
 
 // ReadEvent waits for the next input event or for ctx or the device to close.
@@ -250,4 +255,11 @@ func (d *Device) writeReport(report []byte) error {
 		return os.ErrClosed
 	}
 	return err
+}
+
+func validateImageSize(img image.Image, dimensions image.Point) error {
+	if img == nil || img.Bounds().Size() != dimensions {
+		return fmt.Errorf("streamdeck: expected a %d×%d image", dimensions.X, dimensions.Y)
+	}
+	return nil
 }
