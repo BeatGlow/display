@@ -46,7 +46,7 @@ The Nano Every proxy adds monochrome and three- or four-level grayscale support 
 
 ## Draw to any destination
 
-Each driver implements `display.Display`, which satisfies Go's `draw.Image` interface. The same drawing code works with a hardware display, an in-memory image, or another compatible destination. `framebuffer.Open(nil)` tries KMS first, then fbdev, using each backend's defaults. Pass the returned display directly as `dst`:
+The display controller and framebuffer drivers implement `display.Display`, which satisfies Go's `draw.Image` interface. The same drawing code works with a hardware display, an in-memory image, or another compatible destination. `framebuffer.Open(nil)` tries KMS first, then fbdev, using each backend's defaults. Pass the returned display directly as `dst`:
 
 ```go
 import (
@@ -83,6 +83,7 @@ Each driver also exposes controls such as rotation, contrast, and display power 
 | `framebuffer` | Automatic Linux/FreeBSD DRM/KMS and Linux fbdev selection |
 | `framebuffer/fbdev` | Linux fbdev output |
 | `framebuffer/kms` | Linux and FreeBSD 15.1 amd64 DRM/KMS output with vblank-synchronized page flips |
+| `streamdeck` | [Elgato Stream Deck + keys, dials, and touch strip](streamdeck/README.md) on Linux and macOS |
 
 The KMS backend uses optimized CPU pixel conversion to prepare scanout buffers from the library's image formats. See the [`framebuffer/kms` package README](framebuffer/kms/README.md) for benchmarks and end-to-end performance results.
 
