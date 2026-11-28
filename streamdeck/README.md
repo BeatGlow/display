@@ -35,6 +35,10 @@ Draw key images into standard Go images sized using `deck.Info().Model.KeySize`
 and send them with `SetKeyImage`. The driver handles orientation, encoding, and
 transfer. Keys are numbered from zero, left to right and then top to bottom.
 
+On a HID write failure, the driver can retry the whole image twice on the same
+handle, after 10 ms and 20 ms. Closed-device and permission errors return
+immediately. The application owns reconnecting a disconnected device.
+
 The Stream Deck + also exposes four push-button dials and an 800 × 100 touch
 strip. Dials are numbered from zero, left to right. Send an image sized to
 `deck.Info().Model.StripSize` with `SetStripImage`.

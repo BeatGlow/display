@@ -198,10 +198,11 @@ func TestKeyAndStripImageTransfers(t *testing.T) {
 }
 
 type testTransport struct {
-	input   chan []byte
-	reading chan struct{}
-	closed  chan struct{}
-	output  [][]byte
+	input        chan []byte
+	reading      chan struct{}
+	closed       chan struct{}
+	output       [][]byte
+	writeFailure func([]byte) error
 }
 
 func testDeck(t *testing.T, reports [][]byte) (*Device, *testTransport) {
@@ -246,6 +247,9 @@ func (w *testTransport) readReport(ctx context.Context, p []byte) (int, error) {
 
 func (w *testTransport) writeReport(report []byte) error {
 	w.output = append(w.output, bytes.Clone(report))
+	if w.writeFailure != nil {
+		return w.writeFailure(report)
+	}
 	return nil
 }
 
