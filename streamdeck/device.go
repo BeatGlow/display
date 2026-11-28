@@ -155,7 +155,7 @@ func (d *Device) Info() DeviceInfo {
 }
 
 // SetKeyImage sends an image to a zero-based key, ordered left to right and top to bottom.
-// The image must match the model's key size.
+// The image must match the model's key size. An interrupted transfer may be retried twice.
 func (d *Device) SetKeyImage(key int, img image.Image) error {
 	d.writeMu.Lock()
 	defer d.writeMu.Unlock()
@@ -170,11 +170,14 @@ func (d *Device) SetKeyImage(key int, img image.Image) error {
 	if err := validateImageSize(img, model.KeySize); err != nil {
 		return err
 	}
-	return d.protocol.writeKey(key, img, d.writeReport)
+	return d.writeImage(func() error {
+		return d.protocol.writeKey(key, img, d.writeReport)
+	})
 }
 
 // SetStripImage sends an image matching the touch strip size.
 // It returns ErrUnsupported on models without a touch strip.
+// An interrupted transfer may be retried twice.
 func (d *Device) SetStripImage(img image.Image) error {
 	d.writeMu.Lock()
 	defer d.writeMu.Unlock()
@@ -188,7 +191,9 @@ func (d *Device) SetStripImage(img image.Image) error {
 	if err := validateImageSize(img, d.info.Model.StripSize); err != nil {
 		return err
 	}
-	return strip.writeStrip(img, d.writeReport)
+	return d.writeImage(func() error {
+		return strip.writeStrip(img, d.writeReport)
+	})
 }
 
 // ReadEvent waits for the next input event or for ctx or the device to close.
@@ -250,11 +255,13 @@ func (d *Device) writeReport(report []byte) error {
 	if d.closed() {
 		return os.ErrClosed
 	}
-	err := d.hid.writeReport(report)
-	if err != nil && d.closed() {
-		return os.ErrClosed
+	if err := d.hid.writeReport(report); err != nil {
+		if d.closed() {
+			return os.ErrClosed
+		}
+		return &reportWriteError{cause: err}
 	}
-	return err
+	return nil
 }
 
 func validateImageSize(img image.Image, dimensions image.Point) error {
