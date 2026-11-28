@@ -32,11 +32,11 @@ type plusProtocol struct {
 }
 
 func (p *plusProtocol) writeKey(key int, img image.Image, send func([]byte) error) error {
-	return writeJPEGImage(keyImageCommand, byte(key), img, send)
+	return writeJPEGImage(keyImageCommand, byte(key), img, false, send)
 }
 
 func (p *plusProtocol) writeStrip(img image.Image, send func([]byte) error) error {
-	return writeJPEGImage(0x0b, 0, img, send)
+	return writeJPEGImage(0x0b, 0, img, false, send)
 }
 
 func (p *plusProtocol) events(report []byte) []Event {
