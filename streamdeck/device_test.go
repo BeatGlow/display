@@ -203,6 +203,7 @@ type testTransport struct {
 	closed       chan struct{}
 	output       [][]byte
 	writeFailure func([]byte) error
+	feature      func([]byte) (int, error)
 }
 
 func testDeck(t *testing.T, reports [][]byte) (*Device, *testTransport) {
@@ -225,7 +226,7 @@ func testDeckFor(t *testing.T, productID uint16, reports [][]byte) (*Device, *te
 	for _, report := range reports {
 		transport.input <- report
 	}
-	d := newDevice(DeviceInfo{Model: spec.model}, transport, spec.newProtocol())
+	d := newDevice("", transport, spec)
 	t.Cleanup(func() { _ = d.Close() })
 	return d, transport
 }
@@ -251,6 +252,10 @@ func (w *testTransport) writeReport(report []byte) error {
 		return w.writeFailure(report)
 	}
 	return nil
+}
+
+func (w *testTransport) getFeatureReport(report []byte) (int, error) {
+	return w.feature(report)
 }
 
 func (w *testTransport) Close() error {

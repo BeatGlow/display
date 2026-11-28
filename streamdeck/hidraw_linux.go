@@ -166,3 +166,31 @@ func (d *hidrawDevice) writeReport(report []byte) error {
 	}
 	return nil
 }
+
+func (d *hidrawDevice) getFeatureReport(report []byte) (int, error) {
+	const hidGetFeature = 'H'<<8 | 0x07 // HIDIOCGFEATURE
+	command := ioctl.Encode(ioctl.Read|ioctl.Write, uint16(len(report)), hidGetFeature)
+	var n uintptr
+	var ioctlErr syscall.Errno
+	err := d.raw.Control(func(fd uintptr) {
+		for {
+			n, _, ioctlErr = syscall.Syscall(syscall.SYS_IOCTL, fd, uintptr(command), uintptr(unsafe.Pointer(unsafe.SliceData(report))))
+			if ioctlErr != syscall.EINTR {
+				break
+			}
+		}
+	})
+	if err != nil {
+		return 0, err
+	}
+	switch ioctlErr {
+	case 0:
+		return int(n), nil
+	case syscall.ENOTTY, syscall.EOPNOTSUPP:
+		return 0, ErrUnsupported
+	case syscall.ENODEV:
+		return 0, os.ErrClosed
+	default:
+		return 0, ioctlErr
+	}
+}

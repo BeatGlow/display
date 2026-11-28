@@ -8,30 +8,34 @@ import (
 )
 
 const (
-	imageWriteAttempts   = 3
-	firstImageRetryDelay = 10 * time.Millisecond
+	hidTransferAttempts = 3
+	firstHIDRetryDelay  = 10 * time.Millisecond
 )
 
-// reportWriteError distinguishes a transport failure from an encoding error.
-type reportWriteError struct{ cause error }
+// hidTransferError distinguishes a transport failure from a report or image error.
+type hidTransferError struct{ cause error }
 
-func (e *reportWriteError) Error() string { return e.cause.Error() }
-func (e *reportWriteError) Unwrap() error { return e.cause }
+func (e *hidTransferError) Error() string { return e.cause.Error() }
+func (e *hidTransferError) Unwrap() error { return e.cause }
 
 // writeImage runs with writeMu held. Every attempt starts a fresh image
 // transfer because a failed write can leave a partial image on the device.
 func (d *Device) writeImage(upload func() error) error {
-	delay := firstImageRetryDelay
+	return d.retryHID("image upload", upload)
+}
+
+func (d *Device) retryHID(operation string, transfer func() error) error {
+	delay := firstHIDRetryDelay
 	for attempt := 1; ; attempt++ {
-		err := upload()
-		if err == nil || errors.Is(err, os.ErrClosed) || errors.Is(err, os.ErrPermission) {
+		err := transfer()
+		if err == nil || errors.Is(err, os.ErrClosed) || errors.Is(err, os.ErrPermission) || errors.Is(err, ErrUnsupported) {
 			return err
 		}
-		if _, ok := errors.AsType[*reportWriteError](err); !ok {
+		if _, ok := errors.AsType[*hidTransferError](err); !ok {
 			return err
 		}
-		if attempt == imageWriteAttempts {
-			return fmt.Errorf("streamdeck: image upload failed after %d attempts: %w", attempt, err)
+		if attempt == hidTransferAttempts {
+			return fmt.Errorf("streamdeck: %s failed after %d attempts: %w", operation, attempt, err)
 		}
 
 		timer := time.NewTimer(delay)

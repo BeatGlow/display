@@ -35,7 +35,7 @@ type Model struct {
 
 // DeviceInfo identifies an attached Stream Deck.
 type DeviceInfo struct {
-	// Path is a platform-specific HID identifier accepted by Open.
+	// Path is a platform-specific HID identifier accepted by Open. It can be reused by another deck.
 	Path  string
 	Model Model
 }
@@ -50,6 +50,7 @@ type hidIdentity struct {
 type transport interface {
 	readReport(context.Context, []byte) (int, error)
 	writeReport([]byte) error
+	getFeatureReport([]byte) (int, error)
 	Close() error
 }
 
@@ -65,13 +66,15 @@ type stripProtocol interface {
 
 // Device represents an open Stream Deck. Its methods may be called concurrently.
 type Device struct {
-	info     DeviceInfo
-	hid      transport
-	protocol protocol
+	info         DeviceInfo
+	hid          transport
+	protocol     protocol
+	serialReport serialReport
 
 	readGate  chan struct{} // Serializes reads and guards protocol input state and pending events.
 	pending   []Event
 	writeMu   sync.Mutex // Keeps the reports of each image together.
+	serialMu  sync.Mutex // Keeps the HID handle open during a serial query.
 	closeOnce sync.Once
 	closeErr  error
 	done      chan struct{}
@@ -115,8 +118,7 @@ func Open(path string) (*Device, error) {
 		return nil, fmt.Errorf("streamdeck: open %s: %w", selected.path, err)
 	}
 	spec, _ := lookupModel(selected.productID)
-	info := DeviceInfo{Path: selected.path, Model: spec.model}
-	return newDevice(info, hid, spec.newProtocol()), nil
+	return newDevice(selected.path, hid, spec), nil
 }
 
 func selectDevice(identities []hidIdentity, path string) (hidIdentity, error) {
@@ -139,13 +141,14 @@ func selectDevice(identities []hidIdentity, path string) (hidIdentity, error) {
 	return selected, nil
 }
 
-func newDevice(info DeviceInfo, hid transport, protocol protocol) *Device {
+func newDevice(path string, hid transport, spec modelSpec) *Device {
 	return &Device{
-		info:     info,
-		hid:      hid,
-		protocol: protocol,
-		readGate: make(chan struct{}, 1),
-		done:     make(chan struct{}),
+		info:         DeviceInfo{Path: path, Model: spec.model},
+		hid:          hid,
+		protocol:     spec.newProtocol(),
+		serialReport: spec.serialReport,
+		readGate:     make(chan struct{}, 1),
+		done:         make(chan struct{}),
 	}
 }
 
@@ -237,6 +240,8 @@ func (d *Device) ReadEvent(ctx context.Context) (Event, error) {
 func (d *Device) Close() error {
 	d.closeOnce.Do(func() {
 		close(d.done)
+		d.serialMu.Lock()
+		defer d.serialMu.Unlock()
 		d.closeErr = d.hid.Close()
 	})
 	return d.closeErr
@@ -259,7 +264,7 @@ func (d *Device) writeReport(report []byte) error {
 		if d.closed() {
 			return os.ErrClosed
 		}
-		return &reportWriteError{cause: err}
+		return &hidTransferError{cause: err}
 	}
 	return nil
 }
