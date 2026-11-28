@@ -48,6 +48,22 @@ and touchscreen gestures. Touch coordinates are in strip pixels. `ReadEvent`
 can run while images are being sent and can resume after its context is
 canceled. `Close` interrupts pending reads and releases the HID connection.
 
+## Device identity
+
+Call `deck.SerialNumber()` after `Open` to read the unit's serial number. The
+driver queries the opened HID handle using the model's serial feature report.
+On Linux it uses `HIDIOCGFEATURE` on the hidraw file descriptor. On macOS it uses
+`IOHIDDeviceGetReport` on the open IOKit device.
+
+A unique serial stays with the deck when it moves to another USB port. Use it
+for saved mappings after checking for duplicates. `DeviceInfo.Path` is an
+open selector that the system can reuse for another deck. If the serial is
+unavailable or duplicated, leave profile assignment to the user.
+
+`SerialNumber` returns an empty string if the serial is unavailable or the
+query fails. Transient HID failures get up to two retries on the same handle
+after 10 ms and 20 ms. Discovery and opening require no serial query.
+
 ## Upload FPS
 
 The driver uses an [internal fork of the jpegn encoder](internal/jpegn/README.md).

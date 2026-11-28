@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 
 	"github.com/telesma-app/hid"
 )
@@ -55,4 +56,20 @@ func (d *darwinHID) writeReport(report []byte) error {
 		return io.ErrShortWrite
 	}
 	return err
+}
+
+func (d *darwinHID) getFeatureReport(report []byte) (int, error) {
+	n, err := d.GetFeatureReport(report)
+	if err == nil {
+		return n, nil
+	}
+	// The HID library exposes these IOKit status codes only in the error text.
+	switch err.Error() {
+	case "IOHIDDeviceGetReport failed: 0xe00002c7": // kIOReturnUnsupported
+		return 0, ErrUnsupported
+	case "IOHIDDeviceGetReport failed: 0xe00002c0", // kIOReturnNoDevice
+		"IOHIDDeviceGetReport failed: 0xe00002cd": // kIOReturnNotOpen
+		return 0, os.ErrClosed
+	}
+	return n, err
 }
