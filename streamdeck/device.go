@@ -46,7 +46,7 @@ type hidIdentity struct {
 }
 
 // A transport exchanges complete HID reports, including their report ID.
-// Closing it must interrupt a pending read.
+// Closing it must interrupt a pending read. A write may use its buffer until it returns.
 type transport interface {
 	readReport(context.Context, []byte) (int, error)
 	writeReport([]byte) error
